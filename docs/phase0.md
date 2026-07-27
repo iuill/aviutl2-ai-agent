@@ -9,11 +9,11 @@
 
 | 項目 | 値 |
 |---|---|
-| AviUtl2 | バージョン未記録（クロスビルド成果物のロード確認済み） |
+| AviUtl2 | 2.1.2 |
 | `aviutl2` crate | 0.41.0 |
 | Rust | 1.88.0 |
 | クロスビルドイメージのdigest | 未記録 |
-| Windows バージョン | バージョン未記録（実機確認済み） |
+| Windows バージョン | Windows 11 |
 
 ## 起動確認
 
@@ -140,9 +140,9 @@ SDKを呼ぶ前に、その状態を判定できるか記録します。
 2026-07-27にクロスビルドが完了しました。PEのexport tableには、期待する
 汎用プラグインABI（`RequiredVersion`、`InitializePlugin`、`RegisterPlugin`、
 `UninitializePlugin` および関連する初期化export）が含まれています。
-同日、Linux Dockerクロスビルド版のpluginとCLIについて、バージョン未記録の
-Windows + AviUtl2実機でpluginのロードと登録、`GET /healthz`、CLIによる
-応答解釈を確認しました。Windows nativeビルド成果物のロードは未検証です。
+同日、Linux Dockerクロスビルド版のpluginとCLIについて、Windows 11 +
+AviUtl2 2.1.2実機でpluginのロードと登録、`GET /healthz`、CLIによる応答解釈を
+確認しました。Windows nativeビルド成果物のロードは未検証です。
 両ビルド経路の成果物はMSVC CRTを静的リンクしており、PE import検査では
 Windowsのsystem DLLだけが検出されています。
 
