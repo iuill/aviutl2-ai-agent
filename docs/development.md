@@ -31,14 +31,18 @@ docker build --output type=local,dest=dist .
 転送します。Dockerfileと出力方法は正規ビルドと同じですが、CIのDocker buildとは
 network modeが異なります。
 
+shimが対象とするのは、上記の形式で呼び出す `docker build` subcommandだけです。
+`docker buildx build`、`docker compose build`、global optionを先に置いた呼び出しは
+変換しません。
+
 この制約により、Dev Container内の通常のbridge networkにはNATがなく、
 bridge接続したcontainerから外部へ通信できません。`docker run -p` による
 port公開も使用できません。
 
-Docker-in-DockerのためDev Container自体はprivilegedで起動します。特にLinux
-ホストでは強いセキュリティ境界とみなさず、信頼できるコードだけを実行して
-ください。コンテナ内で作成したDocker imageとcontainerは、ホストのDocker
-daemonには追加されません。
+Docker-in-DockerのためDev Container自体はprivilegedで起動します。強い
+セキュリティ境界とみなさず、信頼できるコードだけを実行してください。
+コンテナ内で作成したDocker imageとcontainerは、ホストのDocker daemonには
+追加されません。
 
 Codex認証はホストの `~/.codex/auth.json` を共有します。GitHub CLIはホストの
 `~/.config/gh-devcontainers` を共有するため、初回はコンテナ内で次を実行します。

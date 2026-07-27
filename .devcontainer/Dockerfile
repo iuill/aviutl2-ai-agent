@@ -31,4 +31,6 @@ RUN chmod 0755 /opt/agent/bin/* \
     /home/vscode/.config/gh \
     /usr/local/cargo
 
+ENV PATH="/opt/agent/bin:${PATH}"
+
 USER vscode
