@@ -2,6 +2,6 @@
 
 set -euo pipefail
 
-exec /usr/local/bin/codex-bin \
+exec /usr/local/bin/codex \
   --dangerously-bypass-approvals-and-sandbox \
   "$@"

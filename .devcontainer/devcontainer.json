@@ -8,6 +8,9 @@
   "containerEnv": {
     "GH_CONFIG_DIR": "/home/vscode/.config/gh"
   },
+  "remoteEnv": {
+    "PATH": "/opt/agent/bin:${containerEnv:PATH}"
+  },
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:3.0.1": {},
     "ghcr.io/devcontainers/features/github-cli:1.1.0": {}

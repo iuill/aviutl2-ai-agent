@@ -16,15 +16,15 @@ RUN apt-get update \
  && rustup target add --toolchain "${RUST_VERSION}" x86_64-pc-windows-msvc \
  && cargo install cargo-xwin --version "${CARGO_XWIN_VERSION}" --locked \
  && npm install --global "@openai/codex@${OPENAI_CODEX_VERSION}" \
- && mv /usr/local/bin/codex /usr/local/bin/codex-bin \
+ && npm cache clean --force \
+ && rm -rf /usr/local/cargo/registry \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-COPY .devcontainer/bin/codex /usr/local/bin/codex
-COPY .devcontainer/bin/docker /usr/local/bin/docker
+COPY .devcontainer/bin/ /opt/agent/bin/
 COPY .devcontainer/docker-daemon.json /etc/docker/daemon.json
 
-RUN chmod 0755 /usr/local/bin/codex /usr/local/bin/docker \
+RUN chmod 0755 /opt/agent/bin/* \
  && mkdir -p /home/vscode/.codex /home/vscode/.config/gh \
  && chown -R vscode:vscode \
     /home/vscode/.codex \
