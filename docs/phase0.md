@@ -18,12 +18,43 @@
 ## 起動確認
 
 - [x] Linux Docker から `.aux2` と `.exe` を生成できる
-- [ ] `.aux2` をロードし、プラグインを登録できる
-- [ ] `GET /healthz` が応答する
-- [ ] CLI が health 応答を解釈できる
+- [x] `.aux2` をロードし、プラグインを登録できる
+- [x] `GET /healthz` が応答する
+- [x] CLI が health 応答を解釈できる
 - [ ] プラグインのunload時に全HTTP workerが停止し、joinされる
 - [ ] AviUtl2 がプロセス実行中にもDLLをunloadするのか、プロセス終了時だけかを確認する
 - [ ] 長時間のSDK操作中も `/healthz` がブロックされない
+
+### 2026-07-27 Windows実機確認
+
+Linux Dockerでクロスビルドした `aviutl2-agent-plugin.aux2` をAviUtl2の
+`data/Plugin`へ配置し、初回の信頼確認後、プラグイン情報に次が表示されることを
+確認しました。
+
+```text
+名前: aviutl2-agent Phase 0
+プラグイン情報: aviutl2-agent 0.0.1 — SDK fact-finding probe
+種別: 汎用プラグイン
+```
+
+AviUtl2起動中に、同じディレクトリへ配置したWindows CLIから次を実行しました。
+
+```powershell
+.\aviutl2-agent.exe health
+```
+
+応答:
+
+```json
+{
+  "status": "ok",
+  "pluginVersion": "0.0.1"
+}
+```
+
+これにより、クロスビルド成果物のロード、プラグイン登録、loopback HTTP応答、
+response DTOの解釈を確認しました。AviUtl2終了時のthread停止と、再起動時の
+port再bindは引き続き未検証です。
 
 ## Q1 — section のスレッド親和性と再入性
 
