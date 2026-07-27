@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Health {
     pub status: HealthStatus,
     pub plugin_version: String,
@@ -31,8 +31,10 @@ mod tests {
     }
 
     #[test]
-    fn health_rejects_unknown_fields() {
+    fn health_accepts_unknown_fields_for_forward_compatibility() {
         let json = r#"{"status":"ok","pluginVersion":"0.0.1","surprise":true}"#;
-        assert!(serde_json::from_str::<Health>(json).is_err());
+        let health = serde_json::from_str::<Health>(json).unwrap();
+        assert_eq!(health.status, HealthStatus::Ok);
+        assert_eq!(health.plugin_version, "0.0.1");
     }
 }

@@ -2,8 +2,8 @@
 
 この文書は API 仕様ではなく、検証結果の台帳です。各項目について、AviUtl2
 のバージョン、`aviutl2` crate のバージョン、ビルド元、正確な再現手順、
-観測結果、ログを記録します。以下に「未検証」が残っている間は Phase 1 へ
-進みません。
+観測結果、ログを記録します。調査は、その事実が必要になるPhaseの直前までに
+完了させます。write固有の調査によってread-only実装を止めません。
 
 ## 検証環境
 
@@ -31,13 +31,19 @@
 
 - [ ] HTTP worker から read section を呼ぶ
 - [ ] HTTP worker から edit section を呼ぶ
-- [ ] read/read、read/write、write/write を同時に呼ぶ
-- [ ] event callback から呼ぶ
+- [ ] event callback のthread IDと同期／非同期性を記録する
+- [x] event callback 内ではevent情報をqueueまたはatomic stateへ記録するだけとする
+- [x] event callback から `call_edit_section` を呼ばない
 - [ ] edit section 内で現在状態を読み取る
 - [ ] edit section を入れ子または連続で呼ぶ
 - [ ] section 実行中に終了する
 
 呼び出し可能なスレッドと、必要なdispatcher設計を記録します。
+`aviutl2-rs` 0.41.0はevent用スレッドからの `call_edit_section` を禁止しているため、
+この経路は危険な実験を行わず、上流仕様により禁止と確定します。
+製品ではすべてのSDK呼び出しをEditorGateで直列化するため、生のread/read、
+read/write、write/write並列呼び出しは必須完了条件にしません。必要になった場合だけ、
+使い捨てプロジェクトを用いた追加調査として実施します。
 
 > 未検証
 
@@ -114,7 +120,8 @@ system DLLだけが検出されています。
 server値より長く生存し、unload後もDLL内のコードを実行する可能性があったためです。
 現在のPhase 0 serverは全workerを直接所有し、すべての応答で接続を閉じ、
 `Drop` 内で全workerをjoinします。Linuxの回帰テストでは、idle状態の
-keep-alive clientと、終了後のport再bindを検証しています。
+keep-alive clientと、終了後のport再bindを検証しています。workerの途中起動失敗時も、
+起動済みworkerを停止・joinしてlistenerを解放することをfailure injectionで確認します。
 
 - [ ] AviUtl2 が `FreeLibrary` より先に `UninitializePlugin` を呼ぶか確認する
 - [ ] `UninitializePlugin` 後にplugin threadが残らないことを確認する
@@ -140,5 +147,23 @@ keep-alive clientと、終了後のport再bindを検証しています。
 
 Phase 0 完了判定：**未完了**
 
-すべての結果を記録した後、設計内の未検証分岐を観測事実へ置き換え、
-read APIの実装前に、より短いv0.5を作成します。
+### Phase 1 read-only API の開始条件
+
+- 起動確認、unload、Q8のworker lifecycle
+- Q1の安全なread呼び出し経路
+- Q3（Phase 1でframe renderを含める場合）
+- Q4のread/render関連
+- Q5のproject reload、handle、object identity関連
+- Q6のクロスビルドとWindowsロード
+
+### Phase 2 write API の開始条件
+
+- Q1のwrite呼び出し経路
+- Q2のUndo単位と部分失敗
+- Q4のwrite/busy関連
+- Q5のwrite eventとrevision
+- Q7のUndo API公開可否
+
+Phase 1に必要な結果を記録した後、該当する未検証分岐を観測事実へ置き換え、
+read APIの実装前に、より短いv0.5を作成します。Q2とQ7はPhase 2の開始前までに
+確定します。

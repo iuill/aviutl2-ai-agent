@@ -5,6 +5,9 @@ on:
   push:
     paths:
       - "crates/plugin/**"
+      - "crates/cli/**"
+      - "crates/protocol/**"
+      - ".cargo/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -16,5 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88.0
+      - run: cargo test --locked -p aviutl2-agent-plugin
+      - run: cargo test --locked -p aviutl2-agent
       - run: cargo build --locked --release -p aviutl2-agent-plugin
       - run: cargo build --locked --release -p aviutl2-agent

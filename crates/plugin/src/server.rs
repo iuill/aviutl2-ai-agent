@@ -39,6 +39,21 @@ pub struct HealthServer {
 
 impl HealthServer {
     pub fn start(address: &str, worker_count: usize) -> Result<Self, ServerError> {
+        Self::start_with_spawner(address, worker_count, |index, listener, shutting_down| {
+            thread::Builder::new()
+                .name(format!("aviutl2-agent-http-{index}"))
+                .spawn(move || worker_loop(listener, shutting_down))
+        })
+    }
+
+    fn start_with_spawner<F>(
+        address: &str,
+        worker_count: usize,
+        mut spawn_worker: F,
+    ) -> Result<Self, ServerError>
+    where
+        F: FnMut(usize, Arc<TcpListener>, Arc<AtomicBool>) -> std::io::Result<JoinHandle<()>>,
+    {
         if worker_count == 0 {
             return Err(ServerError::NoWorkers);
         }
@@ -50,15 +65,20 @@ impl HealthServer {
         let address = listener.local_addr().map_err(ServerError::Configure)?;
         let listener = Arc::new(listener);
         let shutting_down = Arc::new(AtomicBool::new(false));
-        let mut workers = Vec::with_capacity(worker_count);
+        let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
         for index in 0..worker_count {
-            let listener = Arc::clone(&listener);
-            let shutting_down = Arc::clone(&shutting_down);
-            let worker = thread::Builder::new()
-                .name(format!("aviutl2-agent-http-{index}"))
-                .spawn(move || worker_loop(listener, shutting_down))
-                .map_err(ServerError::Spawn)?;
+            let worker =
+                match spawn_worker(index, Arc::clone(&listener), Arc::clone(&shutting_down)) {
+                    Ok(worker) => worker,
+                    Err(error) => {
+                        shutting_down.store(true, Ordering::Release);
+                        for worker in workers.drain(..) {
+                            let _ = worker.join();
+                        }
+                        return Err(ServerError::Spawn(error));
+                    }
+                };
             workers.push(worker);
         }
 
@@ -100,8 +120,12 @@ fn worker_loop(listener: Arc<TcpListener>, shutting_down: Arc<AtomicBool>) {
 }
 
 fn handle_connection(mut stream: TcpStream) {
-    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
-    let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
+    if stream.set_read_timeout(Some(IO_TIMEOUT)).is_err() {
+        return;
+    }
+    if stream.set_write_timeout(Some(IO_TIMEOUT)).is_err() {
+        return;
+    }
     let _ = stream.set_nodelay(true);
 
     let mut request = Vec::with_capacity(512);
@@ -158,12 +182,17 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread,
         time::{Duration, Instant},
     };
 
     use aviutl2_agent_protocol::{Health, HealthStatus};
 
-    use super::{HealthServer, ServerError};
+    use super::{ACCEPT_POLL, HealthServer, ServerError, handle_connection, worker_loop};
 
     fn request(address: std::net::SocketAddr, path: &str) -> String {
         let mut stream = TcpStream::connect(address).unwrap();
@@ -194,9 +223,42 @@ mod tests {
 
     #[test]
     fn drop_joins_workers_and_releases_the_port() {
-        let server = HealthServer::start("127.0.0.1:0", 4).unwrap();
+        let accepted = Arc::new(AtomicBool::new(false));
+        let server = HealthServer::start_with_spawner("127.0.0.1:0", 1, {
+            let accepted = Arc::clone(&accepted);
+            move |_, listener, shutting_down| {
+                let accepted = Arc::clone(&accepted);
+                thread::Builder::new().spawn(move || {
+                    while !shutting_down.load(Ordering::Acquire) {
+                        match listener.accept() {
+                            Ok((stream, _)) => {
+                                accepted.store(true, Ordering::Release);
+                                handle_connection(stream);
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                thread::sleep(ACCEPT_POLL);
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                })
+            }
+        })
+        .unwrap();
         let address = server.local_addr();
-        let idle_keep_alive = TcpStream::connect(address).unwrap();
+        let mut idle_keep_alive = TcpStream::connect(address).unwrap();
+        idle_keep_alive
+            .write_all(b"GET /healthz HTTP/1.1\r\n")
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !accepted.load(Ordering::Acquire) {
+            assert!(
+                Instant::now() < deadline,
+                "worker did not accept connection"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+
         let started = Instant::now();
         drop(server);
         drop(idle_keep_alive);
@@ -211,5 +273,26 @@ mod tests {
             HealthServer::start("127.0.0.1:0", 0),
             Err(ServerError::NoWorkers)
         ));
+    }
+
+    #[test]
+    fn spawn_failure_stops_started_workers_and_releases_port() {
+        let probe = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = probe.local_addr().unwrap();
+        drop(probe);
+
+        let result = HealthServer::start_with_spawner(
+            &address.to_string(),
+            4,
+            |index, listener, shutting_down| {
+                if index == 2 {
+                    return Err(std::io::Error::other("injected spawn failure"));
+                }
+                thread::Builder::new().spawn(move || worker_loop(listener, shutting_down))
+            },
+        );
+        assert!(matches!(result, Err(ServerError::Spawn(_))));
+        TcpListener::bind(address)
+            .expect("startup rollback must stop workers and release listener");
     }
 }
