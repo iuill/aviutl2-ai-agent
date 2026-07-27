@@ -53,8 +53,11 @@ AviUtl2起動中に、同じディレクトリへ配置したWindows CLIから�
 ```
 
 これにより、クロスビルド成果物のロード、プラグイン登録、loopback HTTP応答、
-response DTOの解釈を確認しました。AviUtl2終了時のthread停止と、再起動時の
-port再bindは引き続き未検証です。
+response DTOの解釈を確認しました。その後AviUtl2を終了・再起動し、同じ
+`health` コマンドが再び成功することを確認しました。したがって、プロセス終了後に
+port 7890が残留せず、再起動したプラグインが再bindできることは確認済みです。
+ただし、プロセス終了時にはOSもthreadとsocketを回収するため、この結果だけでは
+`UninitializePlugin` 内で全workerのjoinが完了したことまでは証明できません。
 
 ## Q1 — section のスレッド親和性と再入性
 
@@ -157,7 +160,7 @@ keep-alive clientと、終了後のport再bindを検証しています。worker�
 - [ ] AviUtl2 が `FreeLibrary` より先に `UninitializePlugin` を呼ぶか確認する
 - [ ] `UninitializePlugin` 後にplugin threadが残らないことを確認する
 - [ ] idle状態のclientがunloadを遅延させないことを確認する
-- [ ] 再load/unloadまたはプロセス再起動後にportが解放されることを確認する
+- [x] プロセス再起動後にportが解放され、再bindできることを確認する
 
 > Windows上の実行時挙動は未検証
 
