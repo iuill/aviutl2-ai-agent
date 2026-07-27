@@ -29,9 +29,9 @@ mod windows_plugin {
 
         fn plugin_info(&self) -> GenericPluginTable {
             GenericPluginTable {
-                name: "aviutl2-agent Phase 0".to_owned(),
+                name: "aviutl2-ai-agent Phase 0".to_owned(),
                 information: format!(
-                    "aviutl2-agent {} — SDK fact-finding probe",
+                    "aviutl2-ai-agent {} — SDK fact-finding probe",
                     env!("CARGO_PKG_VERSION")
                 ),
             }
@@ -46,4 +46,4 @@ mod windows_plugin {
 // Keep Linux workspace checks useful while the real entry point is Windows-only.
 #[cfg(not(windows))]
 #[unsafe(no_mangle)]
-pub extern "C" fn aviutl2_agent_phase0_placeholder() {}
+pub extern "C" fn aviutl2_ai_agent_phase0_placeholder() {}

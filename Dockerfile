@@ -8,8 +8,8 @@ COPY . .
 RUN cargo fmt --all --check
 RUN cargo clippy --locked --workspace --all-targets -- -D warnings
 RUN cargo test --locked --workspace
-RUN cargo xwin build --locked --release --target x86_64-pc-windows-msvc -p aviutl2-agent-plugin
-RUN cargo xwin build --locked --release --target x86_64-pc-windows-msvc -p aviutl2-agent
+RUN cargo xwin build --locked --release --target x86_64-pc-windows-msvc -p aviutl2-ai-agent-plugin
+RUN cargo xwin build --locked --release --target x86_64-pc-windows-msvc -p aviutl2-ai-agent
 RUN mkdir /out \
  && cp target/x86_64-pc-windows-msvc/release/aviutl2_agent_plugin.dll /out/aviutl2-agent-plugin.aux2 \
  && cp target/x86_64-pc-windows-msvc/release/aviutl2-agent.exe /out/aviutl2-agent.exe \

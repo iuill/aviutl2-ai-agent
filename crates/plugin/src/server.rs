@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use aviutl2_agent_protocol::{Health, HealthStatus};
+use aviutl2_ai_agent_protocol::{Health, HealthStatus};
 
 const MAX_REQUEST_HEAD: usize = 8 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_millis(250);
@@ -41,7 +41,7 @@ impl HealthServer {
     pub fn start(address: &str, worker_count: usize) -> Result<Self, ServerError> {
         Self::start_with_spawner(address, worker_count, |index, listener, shutting_down| {
             thread::Builder::new()
-                .name(format!("aviutl2-agent-http-{index}"))
+                .name(format!("aviutl2-ai-agent-http-{index}"))
                 .spawn(move || worker_loop(listener, shutting_down))
         })
     }
@@ -190,7 +190,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use aviutl2_agent_protocol::{Health, HealthStatus};
+    use aviutl2_ai_agent_protocol::{Health, HealthStatus};
 
     use super::{ACCEPT_POLL, HealthServer, ServerError, handle_connection, worker_loop};
 

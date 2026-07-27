@@ -1,5 +1,9 @@
 /target
 /dist
 /.cargo-xwin
+/.agents
+/.codex
+.env
+.env.*
+!.env.example
 *.log
-

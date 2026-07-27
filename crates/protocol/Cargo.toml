@@ -1,5 +1,5 @@
 [package]
-name = "aviutl2-agent-protocol"
+name = "aviutl2-ai-agent-protocol"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

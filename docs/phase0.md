@@ -9,11 +9,11 @@
 
 | 項目 | 値 |
 |---|---|
-| AviUtl2 | 未検証 |
+| AviUtl2 | バージョン未記録（クロスビルド成果物のロード確認済み） |
 | `aviutl2` crate | 0.41.0 |
 | Rust | 1.88.0 |
-| クロスビルドイメージのdigest | 未検証 |
-| Windows バージョン | 未検証 |
+| クロスビルドイメージのdigest | 未記録 |
+| Windows バージョン | バージョン未記録（実機確認済み） |
 
 ## 起動確認
 
@@ -27,15 +27,12 @@
 
 ### 2026-07-27 Windows実機確認
 
-Linux Dockerでクロスビルドした `aviutl2-agent-plugin.aux2` をAviUtl2の
-`data/Plugin`へ配置し、初回の信頼確認後、プラグイン情報に次が表示されることを
-確認しました。
+Linux DockerでクロスビルドしたプラグインをAviUtl2の `data/Plugin` へ配置し、
+初回の信頼確認後、汎用プラグインとして情報画面に表示されることを確認しました。
+この確認はプロジェクト識別子を現名称へ統一する前の成果物で実施したため、
+現名称で再ビルドした成果物についても、実機で再確認します。
 
-```text
-名前: aviutl2-agent Phase 0
-プラグイン情報: aviutl2-agent 0.0.1 — SDK fact-finding probe
-種別: 汎用プラグイン
-```
+確認した項目は、バージョン `0.0.1` と「汎用プラグイン」の種別です。
 
 AviUtl2起動中に、同じディレクトリへ配置したWindows CLIから次を実行しました。
 
@@ -137,14 +134,17 @@ SDKを呼ぶ前に、その状態を判定できるか記録します。
 - [x] `cargo xwin` でpluginとCLIをビルドできる
 - [x] DLLを `.aux2` へ改名できる
 - [x] 追加のruntime DLLを必要としない
-- [ ] クロスビルド成果物とWindows native成果物の両方をロードできる
+- [x] Linux Dockerクロスビルド成果物をWindows + AviUtl2でロードできる
+- [ ] Windows nativeビルド成果物をWindows + AviUtl2でロードできる
 
 2026-07-27にクロスビルドが完了しました。PEのexport tableには、期待する
 汎用プラグインABI（`RequiredVersion`、`InitializePlugin`、`RegisterPlugin`、
 `UninitializePlugin` および関連する初期化export）が含まれています。
-Windowsでのロードは未検証であり、この結果からロード成功を推測してはいけません。
-両成果物はMSVC CRTを静的リンクしており、PE import検査ではWindowsの
-system DLLだけが検出されています。
+同日、Linux Dockerクロスビルド版のpluginとCLIについて、バージョン未記録の
+Windows + AviUtl2実機でpluginのロードと登録、`GET /healthz`、CLIによる
+応答解釈を確認しました。Windows nativeビルド成果物のロードは未検証です。
+両ビルド経路の成果物はMSVC CRTを静的リンクしており、PE import検査では
+Windowsのsystem DLLだけが検出されています。
 
 ## Q8 — プラグインのunloadと所有スレッド
 
@@ -162,7 +162,9 @@ keep-alive clientと、終了後のport再bindを検証しています。worker�
 - [ ] idle状態のclientがunloadを遅延させないことを確認する
 - [x] プロセス再起動後にportが解放され、再bindできることを確認する
 
-> Windows上の実行時挙動は未検証
+> Windowsでは、プロセス終了・再起動後のport再bindを確認済みです。
+> `UninitializePlugin` と `FreeLibrary` の順序、worker joinの完了、
+> idle client接続中のunloadについては未検証です。
 
 ## Q7 — Undo API の公開
 

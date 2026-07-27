@@ -1,15 +1,16 @@
 [package]
-name = "aviutl2-agent-plugin"
+name = "aviutl2-ai-agent-plugin"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [lib]
+name = "aviutl2_agent_plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-aviutl2-agent-protocol = { path = "../protocol" }
+aviutl2-ai-agent-protocol = { path = "../protocol" }
 serde_json.workspace = true
 thiserror.workspace = true
 

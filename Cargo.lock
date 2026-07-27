@@ -100,28 +100,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "aviutl2-agent"
+name = "aviutl2-ai-agent"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "aviutl2-agent-protocol",
+ "aviutl2-ai-agent-protocol",
  "clap",
  "serde_json",
  "ureq",
 ]
 
 [[package]]
-name = "aviutl2-agent-plugin"
+name = "aviutl2-ai-agent-plugin"
 version = "0.0.1"
 dependencies = [
  "aviutl2",
- "aviutl2-agent-protocol",
+ "aviutl2-ai-agent-protocol",
  "serde_json",
  "thiserror",
 ]
 
 [[package]]
-name = "aviutl2-agent-protocol"
+name = "aviutl2-ai-agent-protocol"
 version = "0.0.1"
 dependencies = [
  "serde",

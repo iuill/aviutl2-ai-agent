@@ -1,15 +1,18 @@
-# aviutl2-agent
+# aviutl2-ai-agent
 
 起動中の AviUtl2 プロジェクトを、ローカルの構造化 API から操作するための
 Phase 0 技術スパイクです。現段階では製品版のアーキテクチャを実装せず、
 まず [`docs/phase0.md`](docs/phase0.md) に記載した AviUtl2 Plugin SDK の
 挙動を実測することを目標とします。
 
+これは非公式かつ実験段階のプロジェクトであり、AviUtl2公式のプロジェクトでは
+ありません。
+
 ## 開発時の確認
 
 ```bash
 cargo test --workspace
-cargo run -p aviutl2-agent -- health
+cargo run -p aviutl2-ai-agent -- health
 ```
 
 `health` コマンドは、Windows 上のプラグインが
@@ -18,10 +21,12 @@ cargo run -p aviutl2-agent -- health
 ## Windows Phase 0 スモークテスト
 
 1. `dist/aviutl2-agent-plugin.aux2` を AviUtl2 のプラグインディレクトリへコピーします。
-2. AviUtl2 を起動し、プラグイン情報に `aviutl2-agent Phase 0` が表示されることを確認します。
+2. AviUtl2 を起動し、プラグイン情報に `aviutl2-ai-agent Phase 0` が表示されることを確認します。
 3. `dist\aviutl2-agent.exe health` を実行します。
 4. AviUtl2 を終了して再起動し、手順3を繰り返します。再起動後も成功すれば、
-   プラグイン終了時に待受ソケットが解放されたことを確認できます。
+   プロセス終了後にポート7890を再利用できることを確認できます。ただし、この
+   手順だけでは `UninitializePlugin` 内で全workerのjoinが完了したことまでは
+   確認できません。
 
 ポート7890を固定しているのは、最初の単一インスタンス用スパイクだけです。
 セッション探索と衝突しない動的ポートは Phase 1 で実装します。

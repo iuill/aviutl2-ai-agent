@@ -1,9 +1,9 @@
 use anyhow::{Context, Result, bail};
-use aviutl2_agent_protocol::Health;
+use aviutl2_ai_agent_protocol::Health;
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(version, about = "AviUtl2 agent Phase 0 probe")]
+#[command(version, about = "AviUtl2 AI agent Phase 0 probe")]
 struct Args {
     #[arg(long, default_value = "http://127.0.0.1:7890")]
     endpoint: String,
@@ -53,7 +53,7 @@ mod tests {
         thread,
     };
 
-    use aviutl2_agent_protocol::HealthStatus;
+    use aviutl2_ai_agent_protocol::HealthStatus;
 
     use super::get_health;
 
