@@ -1,5 +1,39 @@
 # 開発
 
+## Dev Container
+
+Dev ContainerにはRust 1.88.0、`cargo-xwin` 0.19.2、Codex CLI、GitHub CLIが
+含まれます。リポジトリのルートで次を実行すると、コンテナ内のCodexを起動できます。
+
+```bash
+dc codex
+```
+
+コンテナ内の `codex` は、承認確認とCodex sandboxを無効化して起動します。
+workspace内のファイルは制限なく変更でき、マウントした
+Codex認証とGitHub CLI設定にもアクセスできます。信頼できないリポジトリや
+プロンプトでは使用しないでください。
+
+Docker-in-Dockerを使用し、ホストのDocker socketとホームディレクトリ全体は
+マウントしません。コンテナ内のCodexは、独立したDocker daemonを使って正規
+Dockerビルドまで実行できます。
+
+```bash
+docker build --output type=local,dest=dist .
+```
+
+Docker-in-DockerのためDev Container自体はprivilegedで起動します。特にLinux
+ホストでは強いセキュリティ境界とみなさず、信頼できるコードだけを実行して
+ください。コンテナ内で作成したDocker imageとcontainerは、ホストのDocker
+daemonには追加されません。
+
+Codex認証はホストの `~/.codex/auth.json` を共有します。GitHub CLIはホストの
+`~/.config/gh-devcontainers` を共有するため、初回はコンテナ内で次を実行します。
+
+```bash
+gh auth login
+```
+
 ## 必須チェック
 
 正規ビルドは Docker で実行します。

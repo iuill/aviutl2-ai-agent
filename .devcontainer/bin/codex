@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+exec /usr/local/bin/codex-bin \
+  --dangerously-bypass-approvals-and-sandbox \
+  "$@"
