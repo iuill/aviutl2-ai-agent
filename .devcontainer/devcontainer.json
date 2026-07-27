@@ -1,0 +1,32 @@
+{
+  "name": "aviutl2-ai-agent",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "GH_CONFIG_DIR": "/home/vscode/.config/gh"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:3.0.1": {},
+    "ghcr.io/devcontainers/features/github-cli:1.1.0": {}
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.codex/auth.json,target=/home/vscode/.codex/auth.json,type=bind",
+    "source=${localEnv:HOME}/.config/gh-devcontainers,target=/home/vscode/.config/gh,type=bind"
+  ],
+  "initializeCommand": "bash .devcontainer/scripts/ensure-host-codex-auth.sh '${localEnv:HOME}/.codex/auth.json' && bash .devcontainer/scripts/ensure-host-gh-config.sh '${localEnv:HOME}/.config/gh-devcontainers'",
+  "postCreateCommand": "cargo fetch --locked",
+  "postStartCommand": "bash .devcontainer/scripts/ensure-docker-builder.sh",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "rust-lang.rust-analyzer"
+      ]
+    }
+  }
+}
