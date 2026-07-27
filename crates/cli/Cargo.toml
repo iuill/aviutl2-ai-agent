@@ -1,0 +1,14 @@
+[package]
+name = "aviutl2-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+aviutl2-agent-protocol = { path = "../protocol" }
+clap.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+

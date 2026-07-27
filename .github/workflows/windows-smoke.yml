@@ -1,0 +1,20 @@
+name: Windows build smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "crates/plugin/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/windows-smoke.yml"
+
+jobs:
+  native-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - run: cargo build --locked --release -p aviutl2-agent-plugin
+      - run: cargo build --locked --release -p aviutl2-agent
