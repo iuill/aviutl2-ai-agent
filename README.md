@@ -1,39 +1,39 @@
 # aviutl2-agent
 
-A Phase 0 spike for controlling a running AviUtl2 project through a local,
-structured API. The product architecture is intentionally not implemented yet:
-the first milestone is to measure the AviUtl2 Plugin SDK behavior documented in
-[`docs/phase0.md`](docs/phase0.md).
+起動中の AviUtl2 プロジェクトを、ローカルの構造化 API から操作するための
+Phase 0 技術スパイクです。現段階では製品版のアーキテクチャを実装せず、
+まず [`docs/phase0.md`](docs/phase0.md) に記載した AviUtl2 Plugin SDK の
+挙動を実測することを目標とします。
 
-## Developer checks
+## 開発時の確認
 
 ```bash
 cargo test --workspace
 cargo run -p aviutl2-agent -- health
 ```
 
-The health command expects the Windows plugin probe to listen at
-`http://127.0.0.1:7890`.
+`health` コマンドは、Windows 上のプラグインが
+`http://127.0.0.1:7890` で待ち受けていることを前提とします。
 
-## Windows Phase 0 smoke test
+## Windows Phase 0 スモークテスト
 
-1. Copy `dist/aviutl2-agent-plugin.aux2` into AviUtl2's plugin directory.
-2. Start AviUtl2 and confirm `aviutl2-agent Phase 0` appears in plugin info.
-3. Run `dist\aviutl2-agent.exe health`.
-4. Close AviUtl2, start it again, and repeat step 3. A successful restart
-   confirms that plugin teardown released the listening socket.
+1. `dist/aviutl2-agent-plugin.aux2` を AviUtl2 のプラグインディレクトリへコピーします。
+2. AviUtl2 を起動し、プラグイン情報に `aviutl2-agent Phase 0` が表示されることを確認します。
+3. `dist\aviutl2-agent.exe health` を実行します。
+4. AviUtl2 を終了して再起動し、手順3を繰り返します。再起動後も成功すれば、
+   プラグイン終了時に待受ソケットが解放されたことを確認できます。
 
-Port 7890 is intentionally fixed only for the first single-instance spike.
-Session discovery and collision-free dynamic ports belong to Phase 1.
-If another process already owns port 7890, `InitializePlugin` returns failure
-and AviUtl2 will not load this Phase 0 plugin instance.
+ポート7890を固定しているのは、最初の単一インスタンス用スパイクだけです。
+セッション探索と衝突しない動的ポートは Phase 1 で実装します。
+別のプロセスがすでにポート7890を使用している場合、`InitializePlugin` は失敗し、
+AviUtl2 はこの Phase 0 プラグインをロードしません。
 
-## Cross build
+## クロスビルド
 
 ```bash
 docker build --output type=local,dest=dist .
 ```
 
-This should produce `aviutl2-agent-plugin.aux2`, `aviutl2-agent.exe`, and
-`SHA256SUMS`. Loading the plugin and all SDK-dependent checks require a Windows
-machine with AviUtl2.
+`aviutl2-agent-plugin.aux2`、`aviutl2-agent.exe`、`SHA256SUMS` が
+生成されます。プラグインのロードと SDK に依存する検証には、
+AviUtl2 を導入した Windows 環境が必要です。

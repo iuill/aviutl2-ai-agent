@@ -1,14 +1,14 @@
-# Development
+# 開発
 
-## Required checks
+## 必須チェック
 
-The canonical build runs in Docker:
+正規ビルドは Docker で実行します。
 
 ```bash
 docker build --output type=local,dest=dist .
 ```
 
-For a local Rust installation:
+ローカルに Rust を導入している場合は、次のコマンドを使用できます。
 
 ```bash
 cargo fmt --all --check
@@ -16,13 +16,12 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 ```
 
-The Windows artifacts use Rust 1.88.0, `cargo-xwin` 0.19.2, and statically
-linked MSVC CRT. `aviutl2` is pinned exactly to 0.41.0; update it only with the
-compatibility checks recorded in `docs/phase0.md`.
+Windows 成果物には Rust 1.88.0、`cargo-xwin` 0.19.2、静的リンクした
+MSVC CRT を使用します。`aviutl2` は 0.41.0 に完全固定しています。
+更新する場合は、`docs/phase0.md` に記録した互換性チェックを実施してください。
 
-## Phase 0 boundaries
+## Phase 0 の境界
 
-The fixed port 7890 and unauthenticated `/healthz` endpoint exist only for the
-single-instance bootstrap probe. Do not add the provisional write API before
-Q1–Q7 have been measured on Windows and Design v0.5 has replaced the unverified
-branches.
+固定ポート7890と認証なしの `/healthz` は、単一インスタンスの起動確認用
+スパイクにだけ使用します。Windows で Q1〜Q7 を実測し、未検証の分岐を
+設計 v0.5 で置き換えるまでは、暫定 write API を追加しないでください。

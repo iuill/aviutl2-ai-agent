@@ -1,32 +1,32 @@
-# Design status
+# 設計状況
 
-The accepted input is Draft v0.4, dated 2026-07-27. Its key instruction is to
-stop refining the provisional API and answer Phase 0 questions Q1–Q7 on a real
-Windows + AviUtl2 host first.
+採用した入力文書は、2026-07-27付の Draft v0.4 です。この文書の最重要指示は、
+暫定 API の精緻化を止め、Windows + AviUtl2 の実機で Phase 0 の Q1〜Q7 に
+先に答えることです。
 
-This repository therefore implements only the Phase 0 harness:
+したがって、このリポジトリでは Phase 0 の検証基盤だけを実装しています。
 
-- Rust workspace split into `protocol`, `plugin`, and `cli`;
-- Linux Docker as the canonical Windows MSVC cross-build;
-- an AviUtl2 generic plugin with a loopback `/healthz` server;
-- clean server shutdown through plugin destruction;
-- a CLI health probe;
-- the reproducible test/result ledger in [`phase0.md`](phase0.md).
+- `protocol`、`plugin`、`cli` に分割した Rust workspace
+- Linux Docker を正規経路とする Windows MSVC クロスビルド
+- loopback の `/healthz` サーバーを持つ AviUtl2 汎用プラグイン
+- プラグイン破棄時の安全なサーバー停止
+- CLI のヘルスチェック
+- 再現可能な検証手順・結果台帳である [`phase0.md`](phase0.md)
 
-The stable architectural constraints retained from v0.4 are:
+Draft v0.4 から引き継ぐ、安定したアーキテクチャ上の制約は次のとおりです。
 
-- SDK types never cross the future HTTP contract;
-- all SDK calls will pass through one timeout-aware editor gate;
-- HTTP workers must never acquire the plugin singleton lock; SDK state needed
-  by workers must be held independently so unload cannot deadlock while
-  dropping the singleton and joining workers;
-- health/status paths must remain independent of that gate;
-- writes follow `inspect → validate → apply → verify`;
-- writes identify project epoch, scene, revision, and target explicitly;
-- the plugin never saves the AviUtl2 project;
-- unconditional agent-accessible Undo/Redo is forbidden;
-- Linux cross-build and Windows runtime verification remain separate gates.
+- SDK の型を将来の HTTP 契約へ漏らさない
+- すべての SDK 呼び出しを、タイムアウト付きの単一 EditorGate 経由にする
+- HTTP worker はプラグインの singleton lock を取得しない。worker が必要とする
+  SDK 状態は独立して保持し、singleton の破棄中に worker の join とデッドロック
+  しないようにする
+- health/status 経路は EditorGate に依存させない
+- write は `inspect → validate → apply → verify` の順で行う
+- write では project epoch、scene、revision、対象を明示する
+- プラグインから AviUtl2 プロジェクトを保存しない
+- エージェントが無条件に呼べる Undo/Redo を提供しない
+- Linux クロスビルドと Windows 実行時検証を別々の合格条件にする
 
-The complete v0.4 source remains the project input. After Phase 0, replace
-unverified branches with observed facts and produce a shorter v0.5 here before
-starting the read-only API.
+完全な Draft v0.4 はプロジェクトへの入力文書として保持します。Phase 0 完了後、
+未検証の分岐を実測結果で置き換え、read-only API の実装前に、より短い v0.5 を
+この文書へ反映します。

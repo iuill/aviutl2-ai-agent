@@ -1,5 +1,5 @@
-# Compatibility
+# 互換性
 
-| Plugin | aviutl2-rs | Minimum AviUtl2 | Rust | API | Build image |
+| プラグイン | aviutl2-rs | 最小 AviUtl2 | Rust | API | ビルドイメージ |
 |---|---|---|---|---|---|
-| 0.0.1 (Phase 0) | 0.41.0 | 2.1.2 (declared by SDK wrapper; runtime untested) | 1.88.0 | none | UNTESTED |
+| 0.0.1（Phase 0） | 0.41.0 | 2.1.2（SDK wrapper の宣言値。実機未検証） | 1.88.0 | なし | 未検証 |

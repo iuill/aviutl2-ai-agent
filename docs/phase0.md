@@ -1,146 +1,144 @@
-# Phase 0: SDK fact-finding
+# Phase 0：SDK の事実採取
 
-This is a results ledger, not an API specification. Record AviUtl2 version,
-`aviutl2` crate version, build origin, exact reproduction steps, observed
-result, and logs for every check. Do not advance to Phase 1 while any conclusion
-below is still `UNTESTED`.
+この文書は API 仕様ではなく、検証結果の台帳です。各項目について、AviUtl2
+のバージョン、`aviutl2` crate のバージョン、ビルド元、正確な再現手順、
+観測結果、ログを記録します。以下に「未検証」が残っている間は Phase 1 へ
+進みません。
 
-## Test environment
+## 検証環境
 
-| Field | Value |
+| 項目 | 値 |
 |---|---|
-| AviUtl2 | UNTESTED |
+| AviUtl2 | 未検証 |
 | `aviutl2` crate | 0.41.0 |
 | Rust | 1.88.0 |
-| Cross-build image digest | UNTESTED |
-| Windows version | UNTESTED |
+| クロスビルドイメージのdigest | 未検証 |
+| Windows バージョン | 未検証 |
 
-## Bootstrap
+## 起動確認
 
-- [x] Linux Docker produces `.aux2` and `.exe`.
-- [ ] `.aux2` loads and registers.
-- [ ] `GET /healthz` responds.
-- [ ] CLI parses the health response.
-- [ ] Plugin unload stops and joins every HTTP worker.
-- [ ] Determine whether AviUtl2 unloads the DLL during the process lifetime or
-      only as part of process exit.
-- [ ] A long SDK operation does not block `/healthz`.
+- [x] Linux Docker から `.aux2` と `.exe` を生成できる
+- [ ] `.aux2` をロードし、プラグインを登録できる
+- [ ] `GET /healthz` が応答する
+- [ ] CLI が health 応答を解釈できる
+- [ ] プラグインのunload時に全HTTP workerが停止し、joinされる
+- [ ] AviUtl2 がプロセス実行中にもDLLをunloadするのか、プロセス終了時だけかを確認する
+- [ ] 長時間のSDK操作中も `/healthz` がブロックされない
 
-## Q1 — section threading and reentrancy
+## Q1 — section のスレッド親和性と再入性
 
-Status: **UNTESTED**
+状態：**未検証**
 
-- [ ] Read section from an HTTP worker.
-- [ ] Edit section from an HTTP worker.
-- [ ] Concurrent read/read, read/write, and write/write.
-- [ ] Call from an event callback.
-- [ ] Read current state inside an edit section.
-- [ ] Nested and consecutive edit sections.
-- [ ] Shutdown while a section is active.
+- [ ] HTTP worker から read section を呼ぶ
+- [ ] HTTP worker から edit section を呼ぶ
+- [ ] read/read、read/write、write/write を同時に呼ぶ
+- [ ] event callback から呼ぶ
+- [ ] edit section 内で現在状態を読み取る
+- [ ] edit section を入れ子または連続で呼ぶ
+- [ ] section 実行中に終了する
 
-Record the allowed calling thread and the required dispatcher design:
+呼び出し可能なスレッドと、必要なdispatcher設計を記録します。
 
-> UNTESTED
+> 未検証
 
-## Q2 — Undo and partial failure
+## Q2 — Undo と部分失敗
 
-Status: **UNTESTED**
+状態：**未検証**
 
-- [ ] Change two objects in one edit section; perform one Undo.
-- [ ] Intentionally fail the second mutation.
-- [ ] Create an object, then fail a setting update.
-- [ ] Delete in a compound operation, then Undo.
-- [ ] Locate any explicit rollback API.
+- [ ] 1つのedit sectionで2オブジェクトを変更し、Undoを1回実行する
+- [ ] 2件目のmutationを意図的に失敗させる
+- [ ] オブジェクト作成後、設定更新を失敗させる
+- [ ] 複合操作内で削除し、Undoする
+- [ ] 明示的なrollback APIの有無を調べる
 
-Record Undo granularity and whether partial effects remain:
+Undoの粒度と、部分的な変更が残るかを記録します。
 
-> UNTESTED
+> 未検証
 
-## Q3 — frame rendering
+## Q3 — フレームレンダリング
 
-Status: **UNTESTED**
+状態：**未検証**
 
-- [ ] Render an explicit scene/frame.
-- [ ] Record caller and callback threads.
-- [ ] Copy pixels into an owned buffer before returning.
-- [ ] Record pixel format, pitch, alpha, and buffer lifetime.
-- [ ] Determine whether render size is selectable.
-- [ ] Render during playback, export, and a modal dialog.
-- [ ] Measure repeated and large-resolution calls.
-- [ ] Determine cancellation behavior.
+- [ ] 明示したscene/frameをレンダリングする
+- [ ] 呼び出し元とcallbackのスレッドを記録する
+- [ ] callbackから戻る前にpixelを所有bufferへコピーする
+- [ ] pixel format、pitch、alpha、bufferの寿命を記録する
+- [ ] レンダリング解像度を指定できるか確認する
+- [ ] 再生中、出力中、modal dialog表示中にレンダリングする
+- [ ] 連続呼び出しと大解像度で計測する
+- [ ] キャンセル方法を確認する
 
-> UNTESTED
+> 未検証
 
-## Q4 — editor busy states
+## Q4 — editor のbusy状態
 
-Status: **UNTESTED**
+状態：**未検証**
 
-Try read/write/render during timeline drag, modal dialog, playback, export,
-project load/save, Undo/Redo, and shutdown. Record whether the state can be
-detected before making an SDK call.
+タイムラインのドラッグ中、modal dialog表示中、再生中、出力中、
+プロジェクトの読込・保存中、Undo/Redo中、終了中にread/write/renderを試します。
+SDKを呼ぶ前に、その状態を判定できるか記録します。
 
-> UNTESTED
+> 未検証
 
-## Q5 — events, revisions, and handles
+## Q5 — event、revision、handle
 
-Status: **UNTESTED**
+状態：**未検証**
 
-Log events and handles for create, update, move, delete, effect change,
-scene switch, API-originated changes, Undo/Redo, and project reload. Record
-whether events are synchronous, duplicated, or missing and whether deleted
-handles are reused.
+作成、更新、移動、削除、effect変更、scene切替、API由来の変更、Undo/Redo、
+プロジェクト再読込について、eventとhandleを記録します。eventが同期か、
+重複・欠落するか、削除済みhandleが再利用されるかを確認します。
 
-> UNTESTED
+> 未検証
 
-## Q6 — Linux-to-Windows build
+## Q6 — Linux から Windows へのビルド
 
-Status: **IN PROGRESS**
+状態：**検証中**
 
-- [x] `cargo xwin` builds plugin and CLI.
-- [x] Rename DLL to `.aux2`.
-- [x] No extra runtime DLL is needed.
-- [ ] Cross-built and Windows-native artifacts both load.
+- [x] `cargo xwin` でpluginとCLIをビルドできる
+- [x] DLLを `.aux2` へ改名できる
+- [x] 追加のruntime DLLを必要としない
+- [ ] クロスビルド成果物とWindows native成果物の両方をロードできる
 
-Cross-build completed on 2026-07-27. The PE export table contains the expected
-generic-plugin ABI (`RequiredVersion`, `InitializePlugin`, `RegisterPlugin`,
-`UninitializePlugin`, and related initialization exports). Windows loading is
-still untested and must not be inferred from this result. Both artifacts use
-static MSVC CRT linking; PE import inspection shows only Windows system DLLs.
+2026-07-27にクロスビルドが完了しました。PEのexport tableには、期待する
+汎用プラグインABI（`RequiredVersion`、`InitializePlugin`、`RegisterPlugin`、
+`UninitializePlugin` および関連する初期化export）が含まれています。
+Windowsでのロードは未検証であり、この結果からロード成功を推測してはいけません。
+両成果物はMSVC CRTを静的リンクしており、PE import検査ではWindowsの
+system DLLだけが検出されています。
 
-## Q8 — plugin unload and owned threads
+## Q8 — プラグインのunloadと所有スレッド
 
-Status: **IN PROGRESS**
+状態：**検証中**
 
-The first `tiny_http` spike was rejected because its internal keep-alive task
-could outlive the server value and continue executing DLL code after unload.
-The Phase 0 server now owns every worker directly, closes every response
-connection, and joins all workers in `Drop`; Linux regression tests cover an
-idle keep-alive client and port rebinding.
+最初の `tiny_http` スパイクは不採用としました。内部のkeep-alive taskが
+server値より長く生存し、unload後もDLL内のコードを実行する可能性があったためです。
+現在のPhase 0 serverは全workerを直接所有し、すべての応答で接続を閉じ、
+`Drop` 内で全workerをjoinします。Linuxの回帰テストでは、idle状態の
+keep-alive clientと、終了後のport再bindを検証しています。
 
-- [ ] Determine whether AviUtl2 calls `UninitializePlugin` before `FreeLibrary`.
-- [ ] Verify no plugin thread exists after `UninitializePlugin`.
-- [ ] Verify an idle client cannot delay unload.
-- [ ] Verify repeated load/unload or process restart releases the port.
+- [ ] AviUtl2 が `FreeLibrary` より先に `UninitializePlugin` を呼ぶか確認する
+- [ ] `UninitializePlugin` 後にplugin threadが残らないことを確認する
+- [ ] idle状態のclientがunloadを遅延させないことを確認する
+- [ ] 再load/unloadまたはプロセス再起動後にportが解放されることを確認する
 
-> Windows runtime behavior remains UNTESTED.
+> Windows上の実行時挙動は未検証
 
-## Q7 — Undo API exposure
+## Q7 — Undo API の公開
 
-Status: **UNTESTED**
+状態：**未検証**
 
-- [ ] Locate an SDK Undo/Redo API.
-- [ ] Determine whether it can undo a human operation.
-- [ ] Record events and revision behavior.
-- [ ] Determine whether stack position/depth is queryable.
+- [ ] SDKのUndo/Redo APIを探す
+- [ ] 人間の操作をUndoする可能性があるか確認する
+- [ ] eventとrevisionの挙動を記録する
+- [ ] Undo stackの位置や深さを照会できるか確認する
 
-Do not expose Undo unless the immediately preceding API operation can be proven
-to be the only operation affected.
+直前のAPI操作だけが対象になると証明できない限り、Undoを公開しません。
 
-> UNTESTED
+> 未検証
 
-## Result
+## 結果
 
-Phase 0 completion decision: **NOT READY**
+Phase 0 完了判定：**未完了**
 
-After all results are recorded, replace unverified branches in the design with
-observed facts and write a shorter v0.5 before implementing the read API.
+すべての結果を記録した後、設計内の未検証分岐を観測事実へ置き換え、
+read APIの実装前に、より短いv0.5を作成します。
