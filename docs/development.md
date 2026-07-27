@@ -3,10 +3,11 @@
 ## Dev Container
 
 Dev ContainerにはRust 1.88.0、`cargo-xwin` 0.19.2、Codex CLI、GitHub CLIが
-含まれます。リポジトリのルートで次を実行すると、コンテナ内のCodexを起動できます。
+含まれます。VS CodeのDev Containers拡張機能から、このリポジトリをコンテナで
+開いてください。コンテナ内のターミナルで次を実行するとCodexを起動できます。
 
 ```bash
-dc codex
+codex
 ```
 
 コンテナ内の `codex` は、承認確認とCodex sandboxを無効化して起動します。
