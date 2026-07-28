@@ -95,6 +95,8 @@ CLIは成功を0、usageまたはrequest不正を2、retryableな一時的利用
 - `/phase0/read-section` が削除され、SDK経路が `EditorGate` に一本化されている
 - Linuxのunit test、正規cross-build、GitHub-hosted Windows runtime smokeが通る
 - AviUtl2の通常終了時にworker joinの回帰検査が通る
+- port 7890を先に占有した状態でもAviUtl2本体が起動を完了し、plugin初期化失敗を
+  利用者が認識できることをWindowsで実測し、hostの挙動を記録している
 - 長時間SDK呼出しを模した状態でも `/healthz` が応答する回帰testが通る
 - 次に追加するread対象の選定結果が `design.md` に記録されている
 
