@@ -110,6 +110,9 @@ finally {
         existed = $null -ne $process
         hadExitedBeforeCleanup = $null
         exitCodeBeforeCleanup = $null
+        respondingBeforeCleanup = $null
+        mainWindowTitleBeforeCleanup = $null
+        mainWindowHandleBeforeCleanup = $null
     }
     if ($null -ne $process) {
         $process.Refresh()
@@ -118,6 +121,39 @@ finally {
             $processState.exitCodeBeforeCleanup = $process.ExitCode
         }
         else {
+            $processState.respondingBeforeCleanup = $process.Responding
+            $processState.mainWindowTitleBeforeCleanup = $process.MainWindowTitle
+            $processState.mainWindowHandleBeforeCleanup = $process.MainWindowHandle.ToInt64()
+
+            try {
+                Add-Type -AssemblyName System.Drawing
+                Add-Type -AssemblyName System.Windows.Forms
+                $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
+                $bitmap = [System.Drawing.Bitmap]::new($screen.Width, $screen.Height)
+                $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                try {
+                    $graphics.CopyFromScreen(
+                        $screen.Left,
+                        $screen.Top,
+                        0,
+                        0,
+                        $bitmap.Size
+                    )
+                    $bitmap.Save(
+                        (Join-Path $output "desktop.png"),
+                        [System.Drawing.Imaging.ImageFormat]::Png
+                    )
+                }
+                finally {
+                    $graphics.Dispose()
+                    $bitmap.Dispose()
+                }
+            }
+            catch {
+                $_ | Out-String |
+                    Set-Content -Encoding utf8 (Join-Path $output "screenshot-error.txt")
+            }
+
             Stop-Process -Id $process.Id -Force
             $process.WaitForExit(10000)
         }
