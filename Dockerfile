@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1.7
 FROM rust:1.88.0-bookworm AS dependencies
 
+WORKDIR /src
+COPY rust-toolchain.toml ./
 RUN rustup target add x86_64-pc-windows-msvc \
  && cargo install cargo-xwin --version 0.19.2 --locked
-WORKDIR /src
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY Cargo.toml Cargo.lock ./
 COPY crates/cli/Cargo.toml crates/cli/Cargo.toml
 COPY crates/plugin/Cargo.toml crates/plugin/Cargo.toml
 COPY crates/protocol/Cargo.toml crates/protocol/Cargo.toml
@@ -20,7 +21,7 @@ FROM dependencies AS build
 
 RUN rm -rf crates/cli/src crates/plugin/src crates/protocol/src
 COPY crates ./crates
-RUN touch crates/cli/src/*.rs crates/plugin/src/*.rs crates/protocol/src/*.rs
+RUN find crates -type f -name '*.rs' -exec touch {} +
 RUN cargo fmt --all --check
 RUN cargo clippy --locked --workspace --all-targets -- -D warnings
 RUN cargo test --locked --workspace

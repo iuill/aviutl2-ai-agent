@@ -77,7 +77,9 @@ Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`�
 CIの `cross-build` jobは、Dockerfileの `dependencies` stageをGitHub Actions
 cacheの `cross-build` scopeへ保存します。このstageは固定toolchain、
 `cargo-xwin`、Windows SDKと、manifest・lockfileに対応するLinux/Windows依存crateを
-準備します。sourceだけを変更したrunでも、この依存layerを再利用します。
+準備します。sourceだけを変更したrunでも、この依存layerを再利用します。workspace
+crateの追加、削除、移動や `build.rs` の追加時は、Dockerfileの `dependencies`
+stageにあるmanifest、仮source、build scriptのCOPYと生成処理も更新してください。
 
 2026-07-28のGitHub Actions run `30363597980` では、初回cache作成に7分2秒、
 同じcommitのwarm cacheで26秒かかりました。一方、全build layerをcacheへ保存する
