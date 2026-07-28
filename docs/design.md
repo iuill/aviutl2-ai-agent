@@ -123,6 +123,14 @@ CLIはrequest不正を終了code 2、`editor_busy` と `editor_unavailable` を�
 その他のAPIエラーを終了code 1として扱います。CLI自身のusage errorはclapの
 終了code 2を維持します。
 
+EditorGateの取得順序はFIFOを保証しません。100msの期限はgate取得だけに適用し、
+取得後のSDK呼出し自体を中断しません。SDK呼出しが長時間完了しない場合、後続の
+SDK依存requestはbusyになりますが、`/healthz` と `/v1/status` は応答を続けます。
+gateは直列化tokenだけを保持するため、SDK呼出しのpanicでmutexがpoisonされた場合も
+poisonを解除し、後続requestで再利用します。
+
+Phase 1のHTTP serverはHost headerを必須とするHTTP/1.1 requestだけを受け付けます。
+
 ## Phase 1の完了条件
 
 - `status` と `current scene` のHTTP/CLI契約がtestで固定されている

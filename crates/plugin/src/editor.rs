@@ -12,8 +12,6 @@ pub enum EditorError {
     Busy,
     #[error("AviUtl2 did not accept the read")]
     Unavailable,
-    #[error("EditorGate is poisoned")]
-    Internal,
 }
 
 pub struct EditorGate {
@@ -37,7 +35,14 @@ impl EditorGate {
         loop {
             match self.lock.try_lock() {
                 Ok(_guard) => return operation(),
-                Err(TryLockError::Poisoned(_)) => return Err(EditorError::Internal),
+                Err(TryLockError::Poisoned(error)) => {
+                    // The mutex protects no data; poisoning only records that a
+                    // previous SDK operation panicked. Recover the serialization
+                    // token so later reads are not disabled until process restart.
+                    let _guard = error.into_inner();
+                    self.lock.clear_poison();
+                    return operation();
+                }
                 Err(TryLockError::WouldBlock) if Instant::now() >= deadline => {
                     return Err(EditorError::Busy);
                 }
@@ -120,5 +125,20 @@ mod tests {
 
         release_tx.send(()).unwrap();
         holder.join().unwrap();
+    }
+
+    #[test]
+    fn recovers_after_an_operation_panics() {
+        let gate = Arc::new(EditorGate::new(Duration::from_millis(20)));
+        let panicking_gate = Arc::clone(&gate);
+        assert!(
+            thread::spawn(move || {
+                let _ = panicking_gate.read::<()>(|| panic!("injected SDK panic"));
+            })
+            .join()
+            .is_err()
+        );
+
+        assert_eq!(gate.read(|| Ok("recovered")), Ok("recovered"));
     }
 }

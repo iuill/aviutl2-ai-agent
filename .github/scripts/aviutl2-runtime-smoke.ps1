@@ -231,8 +231,14 @@ try {
         throw "status failed with exit code $statusExitCode"
     }
 
-    $sceneOutput = & $cli current-scene 2>&1 | Out-String
-    $sceneExitCode = $LASTEXITCODE
+    $sceneDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $sceneOutput = & $cli current-scene 2>&1 | Out-String
+        $sceneExitCode = $LASTEXITCODE
+        if ($sceneExitCode -eq 3 -and [DateTime]::UtcNow -lt $sceneDeadline) {
+            Start-Sleep -Milliseconds 250
+        }
+    } while ($sceneExitCode -eq 3 -and [DateTime]::UtcNow -lt $sceneDeadline)
     $sceneOutput | Set-Content -Encoding utf8 (Join-Path $output "current-scene.json")
     if ($sceneExitCode -ne 0) {
         throw "current-scene failed with exit code $sceneExitCode"

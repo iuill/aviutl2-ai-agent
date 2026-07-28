@@ -265,10 +265,7 @@ fn route(request: &str, context: &ServerContext) -> HttpResponse {
     let method = parts.next();
     let path = parts.next();
     let version = parts.next();
-    if parts.next().is_some()
-        || method != Some("GET")
-        || !matches!(version, Some("HTTP/1.0" | "HTTP/1.1"))
-    {
+    if parts.next().is_some() || method != Some("GET") || version != Some("HTTP/1.1") {
         return api_error(
             "400 Bad Request",
             ErrorCode::InvalidRequest,
@@ -299,13 +296,6 @@ fn route(request: &str, context: &ServerContext) -> HttpResponse {
                 "AviUtl2 did not accept the read",
                 true,
                 Some(RETRY_AFTER_SECONDS),
-            ),
-            Err(EditorError::Internal) => api_error(
-                "500 Internal Server Error",
-                ErrorCode::InternalError,
-                "Plugin internal error",
-                false,
-                None,
             ),
         },
         _ => api_error(
@@ -465,6 +455,7 @@ mod tests {
             "GET /healthz HTTP/1.1\r\nHost: attacker.example\r\n\r\n".to_owned(),
             format!("GET /healthz HTTP/1.1\r\nHost: {address}\r\nOrigin: null\r\n\r\n"),
             format!("POST /healthz HTTP/1.1\r\nHost: {address}\r\n\r\n"),
+            format!("GET /healthz HTTP/1.0\r\nHost: {address}\r\n\r\n"),
         ] {
             let response = raw_request(address, &request_head);
             assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
