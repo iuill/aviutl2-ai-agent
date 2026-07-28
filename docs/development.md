@@ -74,15 +74,16 @@ Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`�
 同時に変更します。あわせて `docs/phase0.md` に記録した互換性チェックを
 実施してください。
 
-CIの `cross-build` jobは、BuildKit layerをGitHub Actions cacheの
-`cross-build` scopeへ保存します。cache miss時は正規Docker buildと同じ処理を行い、
-warm cache時は固定toolchain、`cargo-xwin`、Windows SDK、Cargo依存関係などの
-変更されていないlayerを再利用します。cacheは性能最適化だけに使用し、成果物の
-正しさや再現性の根拠にはしません。
+CIの `cross-build` jobは、Dockerfileの `dependencies` stageをGitHub Actions
+cacheの `cross-build` scopeへ保存します。このstageは固定toolchain、
+`cargo-xwin`、Windows SDKと、manifest・lockfileに対応するLinux/Windows依存crateを
+準備します。sourceだけを変更したrunでも、この依存layerを再利用します。
 
 2026-07-28のGitHub Actions run `30363597980` では、初回cache作成に7分2秒、
-同じcommitのwarm cacheで26秒かかりました。source変更後にも有効な短縮かを
-別runで継続確認します。
+同じcommitのwarm cacheで26秒かかりました。一方、全build layerをcacheへ保存する
+最初の方式はsource変更後に4分28秒かかりました。このため、実際のbuild結果はcacheへ
+exportせず、依存stageだけを保存する構成にしています。cacheは性能最適化だけに使用し、
+成果物の正しさや再現性の根拠にはしません。
 
 ## Phase 0 の境界
 
