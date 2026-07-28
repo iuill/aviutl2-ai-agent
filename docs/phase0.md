@@ -12,8 +12,11 @@
 | AviUtl2 | 2.1.2 |
 | `aviutl2` crate | 0.41.0 |
 | Rust | 1.88.0 |
-| クロスビルドイメージのdigest | 未記録 |
+| cross-build base image | `rust:1.88.0-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0` |
 | Windows バージョン | Windows 11 |
+
+各Qの「Phase 0範囲で完了」は、そのQを網羅した意味ではありません。最小Phase 1で
+必要な観測を終え、残項目をAPI拡張直前またはPhase 2へ延期した状態です。
 
 ## 起動確認
 
@@ -23,14 +26,15 @@
 - [x] CLI が health 応答を解釈できる
 - [x] プラグインの正常終了時に全HTTP workerが停止し、joinされる
 - [ ] AviUtl2 がプロセス実行中にもDLLをunloadするのか、プロセス終了時だけかを確認する
-- [ ] 長時間のSDK操作中も `/healthz` がブロックされない
 
 ### 2026-07-27 Windows実機確認
 
 Linux DockerでクロスビルドしたプラグインをAviUtl2の `data/Plugin` へ配置し、
 初回の信頼確認後、汎用プラグインとして情報画面に表示されることを確認しました。
 この確認はプロジェクト識別子を現名称へ統一する前の成果物で実施したため、
-現名称で再ビルドした成果物についても、実機で再確認します。
+現名称で再ビルドした成果物の確認結果は
+「[2026-07-28 GitHub-hosted Windows runner観測](#2026-07-28-github-hosted-windows-runner観測)」
+に記録しています。
 
 確認した項目は、バージョン `0.0.1` と「汎用プラグイン」の種別です。
 
@@ -58,7 +62,7 @@ port 7890が残留せず、再起動したプラグインが再bindできるこ�
 
 ## Q1 — section のスレッド親和性と再入性
 
-状態：**検証中**
+状態：**Phase 0範囲で完了（並列・終了競合はAPI拡張前へ延期）**
 
 - [x] HTTP worker からread sectionを呼ぶためのPhase 0プローブを実装する
 - [x] HTTP worker から read section を呼ぶ（通常状態）
@@ -146,7 +150,8 @@ Windows 11 + AviUtl2 2.1.2で、AviUtl2を起動してRootシーンを表示し�
 SDK内部の実装方式や、すべてのworker・編集状態における安全性までは、この観測から
 推定しません。再生中、モーダル表示中、プロジェクト再読込中、終了中の挙動と、
 複数HTTP workerをまたぐ直列化方式は引き続き未検証です。今回使用した成果物の
-`SHA256SUMS` と実行時刻は未記録です。
+`SHA256SUMS` と実行時刻は当時未記録で、後から復元できません。再現時の比較基準には
+後述の正規ビルド成果物ハッシュを使用します。
 
 ### 2026-07-28 特殊状態と状態変更後の追加観測
 
@@ -211,6 +216,8 @@ thread IDは呼び出したworkerと一致しました。これは逐次実行�
 
 プロジェクト読込処理そのものとread sectionの競合、終了処理との競合、
 モーダルダイアログの種類による差異は未検証です。
+次にthread同一性を観測する場合は、Rust `ThreadId` に加えてWindowsの
+`GetCurrentThreadId` も記録します。
 
 ### 2026-07-28 GitHub-hosted Windows runner観測
 
@@ -249,7 +256,7 @@ loopback HTTP応答、HTTP workerからのread section呼び出しが成立す�
 
 ## Q2 — Undo と部分失敗
 
-状態：**未検証**
+状態：**Phase 2へ延期**
 
 - [ ] 1つのedit sectionで2オブジェクトを変更し、Undoを1回実行する
 - [ ] 2件目のmutationを意図的に失敗させる
@@ -263,7 +270,7 @@ Undoの粒度と、部分的な変更が残るかを記録します。
 
 ## Q3 — フレームレンダリング
 
-状態：**未検証**
+状態：**必要なread APIを追加する直前へ延期**
 
 - [ ] 明示したscene/frameをレンダリングする
 - [ ] 呼び出し元とcallbackのスレッドを記録する
@@ -278,7 +285,7 @@ Undoの粒度と、部分的な変更が残るかを記録します。
 
 ## Q4 — editor のbusy状態
 
-状態：**検証中**
+状態：**Phase 0範囲で完了（未観測のbusy状態はAPI拡張前へ延期）**
 
 タイムラインのドラッグ中、modal dialog表示中、再生中、出力中、
 プロジェクトの読込・保存中、Undo/Redo中、終了中にread/write/renderを試します。
@@ -291,7 +298,7 @@ dialogの種類は未記録です。タイムラインのドラッグ中、出�
 
 ## Q5 — event、revision、handle
 
-状態：**検証中**
+状態：**Phase 0範囲で完了（eventとidentityはAPI拡張前へ延期）**
 
 作成、更新、移動、削除、effect変更、scene切替、API由来の変更、Undo/Redo、
 プロジェクト再読込について、eventとhandleを記録します。eventが同期か、
@@ -303,7 +310,7 @@ dialogの種類は未記録です。タイムラインのドラッグ中、出�
 
 ## Q6 — Linux から Windows へのビルド
 
-状態：**検証中**
+状態：**Phase 0範囲で完了**
 
 - [x] `cargo xwin` でpluginとCLIをビルドできる
 - [x] DLLを `.aux2` へ改名できる
@@ -321,9 +328,18 @@ AviUtl2 2.1.2実機でpluginのロードと登録、`GET /healthz`、CLIによ�
 両ビルド経路の成果物はMSVC CRTを静的リンクしており、PE import検査では
 Windowsのsystem DLLだけが検出されています。
 
+2026-07-28 12:33 UTCに、Rust sourceをcommit
+`79f983993a8e6da5e6514b067f5bb2875d275756` として記録した作業treeから生成した
+正規cross-build成果物のSHA-256は次のとおりです。
+
+```text
+bfe50cd1be3d43e6609af09ea5aea9d6089a29e2d5ced243d9e50a7b80ecee57  aviutl2-agent-plugin.aux2
+404104c8a24194e0822fb70982c64b48775e3d8aabe7764309d4bea7c1225cbb  aviutl2-agent.exe
+```
+
 ## Q8 — プラグインのunloadと所有スレッド
 
-状態：**検証中**
+状態：**Phase 0範囲で完了（厳密なDLL unload順序は延期）**
 
 最初の `tiny_http` スパイクは不採用としました。内部のkeep-alive taskが
 server値より長く生存し、unload後もDLL内のコードを実行する可能性があったためです。
@@ -370,7 +386,7 @@ plugin_drop_completed
 
 ## Q7 — Undo API の公開
 
-状態：**未検証**
+状態：**Phase 2へ延期**
 
 - [ ] SDKのUndo/Redo APIを探す
 - [ ] 人間の操作をUndoする可能性があるか確認する

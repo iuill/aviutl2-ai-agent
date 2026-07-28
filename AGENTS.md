@@ -22,6 +22,8 @@
 - Phase 1のread-only APIは `docs/design.md` v0.5の範囲から追加する。
 - timeline、object、event、renderなどへ範囲を広げる前に、関連する
   `docs/phase0.md` の未検証項目を調査する。
+- read APIを追加または拡張するPRでは、`docs/design.md` のPhase 1範囲を同じPRで
+  更新する。
 - write API、Undo、Redo、プロジェクト保存は、Phase 2 の調査と設計が
   完了するまで公開しない。
 - Windows 実機で確認していない挙動を、確認済みまたは保証済みと記述しない。
