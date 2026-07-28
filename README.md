@@ -14,35 +14,29 @@
 ```bash
 cargo test --workspace
 cargo run -p aviutl2-ai-agent -- health
+cargo run -p aviutl2-ai-agent -- status
+cargo run -p aviutl2-ai-agent -- current-scene
 ```
 
-`health` コマンドは、Windows 上のプラグインが
+各コマンドは、Windows 上のプラグインが
 `http://127.0.0.1:7890` で待ち受けていることを前提とします。
 
-## Windows Phase 0 スモークテスト
+## Windows Phase 1 スモークテスト
 
 1. `dist/aviutl2-agent-plugin.aux2` を AviUtl2 のプラグインディレクトリへコピーします。
-2. AviUtl2 を起動し、プラグイン情報に `aviutl2-ai-agent Phase 0` が表示されることを確認します。
+2. AviUtl2 を起動し、プラグイン情報に `aviutl2-ai-agent Phase 1` が表示されることを確認します。
 3. `dist\aviutl2-agent.exe health` を実行します。
-4. AviUtl2 を終了して再起動し、手順3を繰り返します。再起動後も成功すれば、
+4. `dist\aviutl2-agent.exe status` を実行します。
+5. プロジェクトを開き、`dist\aviutl2-agent.exe current-scene` を実行します。
+6. AviUtl2 を終了して再起動し、手順3を繰り返します。再起動後も成功すれば、
    プロセス終了後にポート7890を再利用できることを確認できます。ただし、この
    手順だけでは `UninitializePlugin` 内で全workerのjoinが完了したことまでは
    確認できません。
 
-Phase 0のread-section実測では、プロジェクトを開いて次を実行します。
-
-```powershell
-dist\aviutl2-agent.exe read-section
-```
-
-これはHTTP workerからSDKのread sectionを呼べるか調べる実験用コマンドです。
-製品版のread APIではありません。結果の記録項目と判定範囲は
-[`docs/phase0.md`](docs/phase0.md)を参照してください。
-
-ポート7890を固定しているのは、最初の単一インスタンス用スパイクだけです。
-セッション探索と衝突しない動的ポートは Phase 1 で実装します。
+Phase 1では単一AviUtl2 instance用にloopback port 7890を固定しています。
+動的port、session discovery、認証は必要性が生じた時点で一緒に設計します。
 別のプロセスがすでにポート7890を使用している場合、`InitializePlugin` は失敗し、
-AviUtl2 はこの Phase 0 プラグインをロードしません。
+AviUtl2 はこのプラグインをロードしません。
 
 ## クロスビルド
 

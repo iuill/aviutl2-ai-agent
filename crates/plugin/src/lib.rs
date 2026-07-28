@@ -18,7 +18,7 @@ mod windows_plugin {
 
     use crate::ApiServer;
 
-    const LIFECYCLE_LOG_ENV: &str = "AVIUTL2_AI_AGENT_PHASE0_LIFECYCLE_LOG";
+    const LIFECYCLE_LOG_ENV: &str = "AVIUTL2_AI_AGENT_PHASE1_LIFECYCLE_LOG";
 
     pub(super) static EDIT_HANDLE: GlobalEditHandle = GlobalEditHandle::new();
 

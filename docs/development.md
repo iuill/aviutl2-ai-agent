@@ -90,12 +90,12 @@ exportせず、依存stageだけを保存する構成にしています。cache�
 `30365461282` は1分21秒、Rust source変更run `30365617118` は1分13秒で、
 source変更時も2分未満という目標を満たしました。
 
-## Phase 0 の境界
+## Phase 1 の境界
 
-固定ポート7890と認証なしの `/healthz` は、単一インスタンスの起動確認用
-スパイクにだけ使用します。Phase 1に必要なread関連の事実をWindowsで実測し、
-該当する未検証分岐を設計 v0.5 で置き換えるまでは、read-only APIを追加しないで
-ください。Undoや部分失敗などwrite固有の調査はPhase 2の開始条件とします。
+固定loopback port 7890と単一AviUtl2 instanceという制約を維持し、
+`docs/design.md` v0.5に記載された `status` とcurrent sceneだけを公開します。
+read対象を追加する場合は設計のPhase 1範囲を同じPRで更新します。Undoや部分失敗など
+write固有の調査はPhase 2の開始条件とします。
 
 ## GitHub-hosted Windows runtime spike
 
@@ -107,8 +107,8 @@ keyにしたGitHub Actions cacheへ保存します。cache miss時だけ公式�
 アクセスし、cacheから復元した場合も使用前にSHA-256を再検証します。
 プログラム本体をリポジトリやworkflow artifactへ保存しません。
 
-このworkflowは、AviUtl2の起動、Phase 0 pluginのロード、`health`、
-`read-section` に加え、idle TCP clientを接続した状態での正常終了、全HTTP
+このworkflowは、AviUtl2の起動、Phase 1 pluginのロード、`health`、
+`status` と `current-scene` に加え、idle TCP clientを接続した状態での正常終了、全HTTP
 workerのjoin、終了後のport 7890再bindを検査します。失敗時のartifact採取に限り、
 残ったAviUtl2 processを強制終了します。GitHub-hosted runnerのGPU、DirectX、
 対話desktop、AviUtl2の初回確認が実行条件を満たすか自体も検証対象です。
