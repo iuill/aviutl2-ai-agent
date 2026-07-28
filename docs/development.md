@@ -80,3 +80,18 @@ Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`�
 スパイクにだけ使用します。Phase 1に必要なread関連の事実をWindowsで実測し、
 該当する未検証分岐を設計 v0.5 で置き換えるまでは、read-only APIを追加しないで
 ください。Undoや部分失敗などwrite固有の調査はPhase 2の開始条件とします。
+
+## GitHub-hosted Windows runtime spike
+
+手動起動専用の `AviUtl2 runtime spike` workflowは、GitHub-hosted
+`windows-2022` 上でAviUtl2を無人起動できるか調べます。AviUtl2 2.1.2のZIPは
+作者の配布サイトからworkflow実行中に直接取得し、固定したSHA-256を検証します。
+取得したZIPは、公式配布元への反復アクセスを避けるため、バージョンとSHA-256を
+keyにしたGitHub Actions cacheへ保存します。cache miss時だけ公式サイトへ
+アクセスし、cacheから復元した場合も使用前にSHA-256を再検証します。
+プログラム本体をリポジトリやworkflow artifactへ保存しません。
+
+このworkflowは、AviUtl2の起動、Phase 0 pluginのロード、`health`、
+`read-section`、終了後の観測ファイル作成だけを行います。GitHub-hosted runnerの
+GPU、DirectX、対話desktop、AviUtl2の初回確認が実行条件を満たすか自体が
+検証対象です。CIの必須チェックやpush triggerにはせず、手動実行でだけ起動します。

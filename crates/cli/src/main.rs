@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use aviutl2_ai_agent_protocol::Health;
+use aviutl2_ai_agent_protocol::{Health, ReadSectionProbe};
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -15,6 +15,8 @@ struct Args {
 enum Command {
     /// Probe the plugin's gate-free health endpoint.
     Health,
+    /// Phase 0 only: invoke a read section from an HTTP worker.
+    ReadSection,
 }
 
 fn main() -> Result<()> {
@@ -24,8 +26,32 @@ fn main() -> Result<()> {
             "{}",
             serde_json::to_string_pretty(&get_health(&args.endpoint)?)?
         ),
+        Command::ReadSection => println!(
+            "{}",
+            serde_json::to_string_pretty(&get_read_section_probe(&args.endpoint)?)?
+        ),
     }
     Ok(())
+}
+
+fn get_read_section_probe(base_endpoint: &str) -> Result<ReadSectionProbe> {
+    let endpoint = format!(
+        "{}/phase0/read-section",
+        base_endpoint.trim_end_matches('/')
+    );
+    let mut response = match ureq::get(&endpoint).call() {
+        Ok(response) => response,
+        Err(ureq::Error::StatusCode(status)) => {
+            bail!("read-section probe returned HTTP {status}");
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to connect to {endpoint}"));
+        }
+    };
+    response
+        .body_mut()
+        .read_json()
+        .context("invalid read-section probe response")
 }
 
 fn get_health(base_endpoint: &str) -> Result<Health> {
@@ -55,7 +81,7 @@ mod tests {
 
     use aviutl2_ai_agent_protocol::HealthStatus;
 
-    use super::get_health;
+    use super::{get_health, get_read_section_probe};
 
     fn serve_once(status: &str, body: &str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -92,5 +118,16 @@ mod tests {
         let endpoint = serve_once("404 Not Found", r#"{"error":"missing"}"#);
         let error = get_health(&endpoint).unwrap_err().to_string();
         assert_eq!(error, "health endpoint returned HTTP 404");
+    }
+
+    #[test]
+    fn parses_read_section_probe_response() {
+        let endpoint = serve_once(
+            "200 OK",
+            r#"{"success":true,"workerThread":"ThreadId(2)","callbackThread":"ThreadId(2)","elapsedMicros":42,"sceneName":"Scene 1","error":null}"#,
+        );
+        let probe = get_read_section_probe(&endpoint).unwrap();
+        assert!(probe.success);
+        assert_eq!(probe.scene_name.as_deref(), Some("Scene 1"));
     }
 }

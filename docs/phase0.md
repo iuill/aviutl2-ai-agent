@@ -58,9 +58,10 @@ port 7890が残留せず、再起動したプラグインが再bindできるこ�
 
 ## Q1 — section のスレッド親和性と再入性
 
-状態：**未検証**
+状態：**検証中**
 
-- [ ] HTTP worker から read section を呼ぶ
+- [x] HTTP worker からread sectionを呼ぶためのPhase 0プローブを実装する
+- [x] HTTP worker から read section を呼ぶ（通常状態）
 - [ ] HTTP worker から edit section を呼ぶ
 - [ ] event callback のthread IDと同期／非同期性を記録する
 - [x] event callback 内ではevent情報をqueueまたはatomic stateへ記録するだけとする
@@ -76,7 +77,175 @@ port 7890が残留せず、再起動したプラグインが再bindできるこ�
 read/write、write/write並列呼び出しは必須完了条件にしません。必要になった場合だけ、
 使い捨てプロジェクトを用いた追加調査として実施します。
 
-> 未検証
+> 通常状態でのHTTP workerからのread section呼び出しは成功しました。
+> 特殊状態と終了処理との競合は未検証です。
+
+### HTTP worker read-sectionプローブ
+
+`GET /phase0/read-section` は、HTTP workerから `call_read_section` を1回呼び、
+現在のシーン名を読み取ります。workerとsection callbackの
+thread ID、呼び出し時間、失敗理由もJSONで返します。これはQ1の事実採取専用で、
+Phase 1の公開APIではありません。`GET /healthz` は引き続きSDKを呼びません。
+
+現名称の正規ビルド成果物をWindows + AviUtl2へ配置し、プロジェクトを開いた状態で
+次を実行します。
+
+```powershell
+.\aviutl2-agent.exe health
+.\aviutl2-agent.exe read-section
+.\aviutl2-agent.exe read-section
+```
+
+各コマンドの完全なJSON、AviUtl2とWindowsのバージョン、配置した成果物の
+`SHA256SUMS`、プロジェクトの状態、実行時刻をこの節へ記録します。成功した場合も、
+この1条件だけから再生中、モーダル表示中、終了中などの安全性は推定しません。
+
+### 2026-07-28 Windows実機観測
+
+Windows 11 + AviUtl2 2.1.2で、AviUtl2を起動してRootシーンを表示した通常状態から
+現名称のクロスビルド成果物を実行しました。`health` は次を返しました。
+
+```json
+{
+  "status": "ok",
+  "pluginVersion": "0.0.1"
+}
+```
+
+続けて `read-section` を2回実行しました。
+
+```json
+{
+  "success": true,
+  "workerThread": "ThreadId(1)",
+  "callbackThread": "ThreadId(1)",
+  "elapsedMicros": 26,
+  "sceneName": "Root",
+  "error": null
+}
+```
+
+```json
+{
+  "success": true,
+  "workerThread": "ThreadId(1)",
+  "callbackThread": "ThreadId(1)",
+  "elapsedMicros": 5,
+  "sceneName": "Root",
+  "error": null
+}
+```
+
+この観測から、少なくとも上記の通常状態では次を確認しました。
+
+- HTTP workerから `call_read_section` を呼び出せる
+- section callbackは呼び出したworkerと同じRust thread ID上で実行される
+- callbackが返るまでにシーン名を読み取れる
+- 連続した2回の呼び出しが成功する
+
+SDK内部の実装方式や、すべてのworker・編集状態における安全性までは、この観測から
+推定しません。再生中、モーダル表示中、プロジェクト再読込中、終了中の挙動と、
+複数HTTP workerをまたぐ直列化方式は引き続き未検証です。今回使用した成果物の
+`SHA256SUMS` と実行時刻は未記録です。
+
+### 2026-07-28 特殊状態と状態変更後の追加観測
+
+前節と同じ実機環境と成果物で、次の順に `read-section` を実行しました。
+
+1. タイムライン再生中
+2. モーダルダイアログ表示中
+3. `Scene1` へシーンを切り替えた後
+4. 別プロジェクトを読み込んだ後
+
+結果は順に次のとおりでした。
+
+```json
+{
+  "success": true,
+  "workerThread": "ThreadId(3)",
+  "callbackThread": "ThreadId(3)",
+  "elapsedMicros": 12,
+  "sceneName": "Root",
+  "error": null
+}
+```
+
+```json
+{
+  "success": true,
+  "workerThread": "ThreadId(2)",
+  "callbackThread": "ThreadId(2)",
+  "elapsedMicros": 4,
+  "sceneName": "Root",
+  "error": null
+}
+```
+
+```json
+{
+  "success": true,
+  "workerThread": "ThreadId(4)",
+  "callbackThread": "ThreadId(4)",
+  "elapsedMicros": 5,
+  "sceneName": "Scene1",
+  "error": null
+}
+```
+
+```json
+{
+  "success": true,
+  "workerThread": "ThreadId(1)",
+  "callbackThread": "ThreadId(1)",
+  "elapsedMicros": 4,
+  "sceneName": "Root",
+  "error": null
+}
+```
+
+この結果から、観測した再生中とモーダル表示中にもread sectionが成功したこと、
+シーン切替後とプロジェクト再読込後に現在のシーン名を読み取れたことを確認しました。
+また、4つのHTTP workerすべてで呼び出しが成功し、各section callbackのRust
+thread IDは呼び出したworkerと一致しました。これは逐次実行の観測であり、SDK呼び出しの
+並列安全性は示しません。
+
+プロジェクト読込処理そのものとread sectionの競合、終了処理との競合、
+モーダルダイアログの種類による差異は未検証です。
+
+### 2026-07-28 GitHub-hosted Windows runner観測
+
+GitHub Actions run `30357153530` の標準 `windows-2022` runnerで、AviUtl2
+2.1.2の公式ZIPを取得してSHA-256を検証し、native buildしたpluginとCLIを配置して
+AviUtl2を起動しました。AviUtl2のplugin信頼確認overlayは、対象processの
+メインウィンドウを確認したうえで1回だけ自動承認しました。
+
+観測環境はWindows Server 2022 Datacenter build 20348、runner image
+`20260720.249.2`、AMD EPYC 7763、Microsoft Hyper-V Videoでした。
+
+`health` と `read-section` は次の結果になりました。
+
+```json
+{
+  "status": "ok",
+  "pluginVersion": "0.0.1"
+}
+```
+
+```json
+{
+  "success": true,
+  "workerThread": "ThreadId(3)",
+  "callbackThread": "ThreadId(3)",
+  "elapsedMicros": 32,
+  "sceneName": "Root",
+  "error": null
+}
+```
+
+これにより、GitHub-hosted Windows runnerでもAviUtl2の無人起動、pluginロード、
+loopback HTTP応答、HTTP workerからのread section呼び出しが成立することを
+確認しました。runner終了時はハーネスがAviUtl2を強制終了しているため、
+この観測は `UninitializePlugin` とworker joinの検証には使用しません。
 
 ## Q2 — Undo と部分失敗
 
@@ -109,23 +278,28 @@ Undoの粒度と、部分的な変更が残るかを記録します。
 
 ## Q4 — editor のbusy状態
 
-状態：**未検証**
+状態：**検証中**
 
 タイムラインのドラッグ中、modal dialog表示中、再生中、出力中、
 プロジェクトの読込・保存中、Undo/Redo中、終了中にread/write/renderを試します。
 SDKを呼ぶ前に、その状態を判定できるか記録します。
 
-> 未検証
+通常状態、再生中、modal dialog表示中のread sectionは成功しました。modal
+dialogの種類は未記録です。タイムラインのドラッグ中、出力中、プロジェクトの
+読込・保存処理中、Undo/Redo中、終了中は未検証です。writeとrenderについては
+まだ検証していません。
 
 ## Q5 — event、revision、handle
 
-状態：**未検証**
+状態：**検証中**
 
 作成、更新、移動、削除、effect変更、scene切替、API由来の変更、Undo/Redo、
 プロジェクト再読込について、eventとhandleを記録します。eventが同期か、
 重複・欠落するか、削除済みhandleが再利用されるかを確認します。
 
-> 未検証
+シーン切替後と別プロジェクト読込後にread sectionを呼び、現在のシーン名を
+読み取れることは確認しました。変更を通知するevent、callbackのthread、
+同期／非同期性、重複・欠落、handleの無効化・再利用は未検証です。
 
 ## Q6 — Linux から Windows へのビルド
 

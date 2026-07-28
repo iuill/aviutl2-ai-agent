@@ -10,9 +10,11 @@ pub use server::{HealthServer, ServerError};
 
 #[cfg(windows)]
 mod windows_plugin {
-    use aviutl2::generic::{GenericPlugin, GenericPluginTable, HostAppHandle};
+    use aviutl2::generic::{GenericPlugin, GenericPluginTable, GlobalEditHandle, HostAppHandle};
 
     use crate::HealthServer;
+
+    pub(super) static EDIT_HANDLE: GlobalEditHandle = GlobalEditHandle::new();
 
     #[aviutl2::plugin(GenericPlugin)]
     struct AgentPlugin {
@@ -37,7 +39,9 @@ mod windows_plugin {
             }
         }
 
-        fn register(&mut self, _registry: &mut HostAppHandle) {}
+        fn register(&mut self, registry: &mut HostAppHandle) {
+            EDIT_HANDLE.init(registry.create_edit_handle());
+        }
     }
 
     aviutl2::register_generic_plugin!(AgentPlugin);

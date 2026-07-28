@@ -9,7 +9,12 @@ use std::{
     time::Duration,
 };
 
+#[cfg(windows)]
+use aviutl2_ai_agent_protocol::ReadSectionProbe;
 use aviutl2_ai_agent_protocol::{Health, HealthStatus};
+
+#[cfg(windows)]
+use std::time::Instant;
 
 const MAX_REQUEST_HEAD: usize = 8 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_millis(250);
@@ -160,6 +165,26 @@ fn handle_connection(mut stream: TcpStream) {
                 "application/json",
                 serde_json::to_vec(&health).expect("Health is serializable"),
             )
+        } else if request_line == "GET /phase0/read-section HTTP/1.1"
+            || request_line == "GET /phase0/read-section HTTP/1.0"
+        {
+            #[cfg(windows)]
+            {
+                (
+                    "200 OK",
+                    "application/json",
+                    serde_json::to_vec(&run_read_section_probe())
+                        .expect("ReadSectionProbe is serializable"),
+                )
+            }
+            #[cfg(not(windows))]
+            {
+                (
+                    "404 Not Found",
+                    "text/plain; charset=utf-8",
+                    b"not found".to_vec(),
+                )
+            }
         } else {
             (
                 "404 Not Found",
@@ -175,6 +200,55 @@ fn handle_connection(mut stream: TcpStream) {
     let _ = stream.write_all(head.as_bytes());
     let _ = stream.write_all(&body);
     let _ = stream.flush();
+}
+
+#[cfg(windows)]
+fn run_read_section_probe() -> ReadSectionProbe {
+    let worker_thread = format!("{:?}", thread::current().id());
+    if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+        return ReadSectionProbe {
+            success: false,
+            worker_thread,
+            callback_thread: None,
+            elapsed_micros: 0,
+            scene_name: None,
+            error: Some("edit handle is not ready".into()),
+        };
+    }
+
+    let started = Instant::now();
+    let result = crate::windows_plugin::EDIT_HANDLE.call_read_section(|section| {
+        let callback_thread = format!("{:?}", thread::current().id());
+        (callback_thread, section.get_scene_name())
+    });
+    let elapsed_micros = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+
+    match result {
+        Ok((callback_thread, Ok(scene_name))) => ReadSectionProbe {
+            success: true,
+            worker_thread,
+            callback_thread: Some(callback_thread),
+            elapsed_micros,
+            scene_name: Some(scene_name),
+            error: None,
+        },
+        Ok((callback_thread, Err(error))) => ReadSectionProbe {
+            success: false,
+            worker_thread,
+            callback_thread: Some(callback_thread),
+            elapsed_micros,
+            scene_name: None,
+            error: Some(format!("read section callback failed: {error}")),
+        },
+        Err(error) => ReadSectionProbe {
+            success: false,
+            worker_thread,
+            callback_thread: None,
+            elapsed_micros,
+            scene_name: None,
+            error: Some(format!("call_read_section failed: {error}")),
+        },
+    }
 }
 
 #[cfg(test)]
