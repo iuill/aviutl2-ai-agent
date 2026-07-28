@@ -117,65 +117,41 @@ function Approve-AviUtl2PluginTrustDialog {
         [int]$ProcessId
     )
 
-    $dialog = [AviUtl2NativeMethods]::FindWindow(
-        $null,
-        "スクリプト・プラグインの追加"
-    )
-    if ($dialog -eq [IntPtr]::Zero) {
+    $aviutl2Process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($null -eq $aviutl2Process) {
         return $false
     }
 
-    [uint32]$ownerProcessId = 0
-    [void][AviUtl2NativeMethods]::GetWindowThreadProcessId(
-        $dialog,
-        [ref]$ownerProcessId
-    )
-    if ($ownerProcessId -ne $ProcessId) {
+    $aviutl2Process.Refresh()
+    $window = $aviutl2Process.MainWindowHandle
+    if ($window -eq [IntPtr]::Zero) {
         return $false
     }
 
-    $button = [AviUtl2NativeMethods]::FindWindowEx(
-        $dialog,
-        [IntPtr]::Zero,
-        "Button",
-        "このプラグイン・スクリプトを信頼して使用する"
-    )
     try {
-        if ($button -ne [IntPtr]::Zero) {
-            [void][AviUtl2NativeMethods]::SendMessage(
-                $button,
-                0x00F5,
-                [IntPtr]::Zero,
-                [IntPtr]::Zero
-            )
+        $rect = [AviUtl2NativeMethods+Rect]::new()
+        if (-not [AviUtl2NativeMethods]::GetWindowRect($window, [ref]$rect)) {
+            return $false
         }
-        else {
-            $rect = [AviUtl2NativeMethods+Rect]::new()
-            if (-not [AviUtl2NativeMethods]::GetWindowRect($dialog, [ref]$rect)) {
-                return $false
-            }
 
-            $width = $rect.Right - $rect.Left
-            $height = $rect.Bottom - $rect.Top
-            $x = $rect.Left + [int]($width * 0.31)
-            $y = $rect.Top + [int]($height * 0.87)
-            [void][AviUtl2NativeMethods]::SetForegroundWindow($dialog)
-            [void][AviUtl2NativeMethods]::SetCursorPos($x, $y)
-            [AviUtl2NativeMethods]::mouse_event(
-                0x0002,
-                0,
-                0,
-                0,
-                [UIntPtr]::Zero
-            )
-            [AviUtl2NativeMethods]::mouse_event(
-                0x0004,
-                0,
-                0,
-                0,
-                [UIntPtr]::Zero
-            )
-        }
+        $x = [int](($rect.Left + $rect.Right) / 2) - 85
+        $y = [int](($rect.Top + $rect.Bottom) / 2) + 88
+        [void][AviUtl2NativeMethods]::SetForegroundWindow($window)
+        [void][AviUtl2NativeMethods]::SetCursorPos($x, $y)
+        [AviUtl2NativeMethods]::mouse_event(
+            0x0002,
+            0,
+            0,
+            0,
+            [UIntPtr]::Zero
+        )
+        [AviUtl2NativeMethods]::mouse_event(
+            0x0004,
+            0,
+            0,
+            0,
+            [UIntPtr]::Zero
+        )
         return $true
     }
     catch {
@@ -216,7 +192,10 @@ try {
             throw "AviUtl2 exited before /healthz became ready (exit code $($process.ExitCode))"
         }
 
-        if (Approve-AviUtl2PluginTrustDialog -ProcessId $process.Id) {
+        if (
+            $trustApprovals -eq 0 -and
+            (Approve-AviUtl2PluginTrustDialog -ProcessId $process.Id)
+        ) {
             $trustApprovals++
         }
 
