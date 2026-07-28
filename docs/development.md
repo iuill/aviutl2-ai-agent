@@ -83,7 +83,8 @@ cacheの `cross-build` scopeへ保存します。このstageは固定toolchain�
 同じcommitのwarm cacheで26秒かかりました。一方、全build layerをcacheへ保存する
 最初の方式はsource変更後に4分28秒かかりました。このため、実際のbuild結果はcacheへ
 exportせず、依存stageだけを保存する構成にしています。cacheは性能最適化だけに使用し、
-成果物の正しさや再現性の根拠にはしません。
+成果物の正しさや再現性の根拠にはしません。依存stageを初めて作成したrun
+`30365033771` は4分40秒でした。
 
 ## Phase 0 の境界
 
