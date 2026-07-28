@@ -31,3 +31,5 @@ jobs:
           context: .
           target: build
           push: false
+          cache-from: type=gha,scope=cross-build
+          cache-to: type=gha,mode=max,scope=cross-build

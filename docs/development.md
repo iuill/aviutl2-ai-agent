@@ -74,6 +74,12 @@ Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`�
 同時に変更します。あわせて `docs/phase0.md` に記録した互換性チェックを
 実施してください。
 
+CIの `cross-build` jobは、BuildKit layerをGitHub Actions cacheの
+`cross-build` scopeへ保存します。cache miss時は正規Docker buildと同じ処理を行い、
+warm cache時は固定toolchain、`cargo-xwin`、Windows SDK、Cargo依存関係などの
+変更されていないlayerを再利用します。cacheは性能最適化だけに使用し、成果物の
+正しさや再現性の根拠にはしません。
+
 ## Phase 0 の境界
 
 固定ポート7890と認証なしの `/healthz` は、単一インスタンスの起動確認用
