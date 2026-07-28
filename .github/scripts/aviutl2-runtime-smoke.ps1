@@ -91,6 +91,14 @@ public static class AviUtl2NativeMethods
         IntPtr lParam
     );
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostMessage(
+        IntPtr window,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam
+    );
+
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr window, out Rect rect);
 
@@ -183,6 +191,8 @@ try {
         -Destination (Join-Path $pluginDirectory "aviutl2-agent-plugin.aux2")
     Copy-Item -LiteralPath $cli -Destination (Join-Path $app "aviutl2-agent.exe")
 
+    $lifecycleLog = Join-Path $output "plugin-lifecycle.jsonl"
+    $env:AVIUTL2_AI_AGENT_PHASE0_LIFECYCLE_LOG = $lifecycleLog
     $process = Start-Process -FilePath $aviutl2 -WorkingDirectory $app -PassThru
     [ordered]@{
         processId = $process.Id
@@ -220,6 +230,81 @@ try {
     if ($readExitCode -ne 0) {
         throw "read-section failed with exit code $readExitCode"
     }
+
+    $idleClient = [System.Net.Sockets.TcpClient]::new()
+    $idleClient.Connect("127.0.0.1", 7890)
+    $shutdownStarted = [DateTime]::UtcNow
+    try {
+        $process.Refresh()
+        $window = $process.MainWindowHandle
+        if ($window -eq [IntPtr]::Zero) {
+            throw "AviUtl2 main window was not available for graceful shutdown"
+        }
+        if (-not [AviUtl2NativeMethods]::PostMessage(
+            $window,
+            0x0010,
+            [IntPtr]::Zero,
+            [IntPtr]::Zero
+        )) {
+            throw "Failed to post WM_CLOSE to AviUtl2"
+        }
+        if (-not $process.WaitForExit(30000)) {
+            throw "AviUtl2 did not exit within 30 seconds after WM_CLOSE"
+        }
+    }
+    finally {
+        $idleClient.Dispose()
+    }
+
+    if (-not (Test-Path -LiteralPath $lifecycleLog)) {
+        throw "Plugin lifecycle log was not created"
+    }
+    $lifecycleRecords = @(
+        Get-Content -LiteralPath $lifecycleLog |
+            ForEach-Object { $_ | ConvertFrom-Json }
+    )
+    $expectedEvents = @(
+        "plugin_drop_started",
+        "http_workers_joined",
+        "plugin_drop_completed"
+    )
+    $actualEvents = @($lifecycleRecords | ForEach-Object { $_.event })
+    if (($actualEvents -join "`n") -ne ($expectedEvents -join "`n")) {
+        throw "Unexpected plugin lifecycle sequence: $($actualEvents -join ', ')"
+    }
+    $joined = $lifecycleRecords[1]
+    if ($joined.workerCount -ne 4 -or $joined.joinPanics -ne 0) {
+        throw "Unexpected worker join result: $($joined | ConvertTo-Json -Compress)"
+    }
+    if ($process.ExitCode -ne 0) {
+        throw "AviUtl2 exited with code $($process.ExitCode)"
+    }
+
+    $portProbe = [System.Net.Sockets.TcpListener]::new(
+        [System.Net.IPAddress]::Loopback,
+        7890
+    )
+    try {
+        $portProbe.Start()
+    }
+    finally {
+        $portProbe.Stop()
+    }
+
+    [ordered]@{
+        requestedAtUtc = $shutdownStarted.ToString("o")
+        exitedAtUtc = [DateTime]::UtcNow.ToString("o")
+        elapsedMilliseconds = [int](
+            ([DateTime]::UtcNow - $shutdownStarted).TotalMilliseconds
+        )
+        exitCode = $process.ExitCode
+        idleClientConnected = $true
+        lifecycleEvents = $actualEvents
+        joinedWorkers = $joined.workerCount
+        joinPanics = $joined.joinPanics
+        portRebindSucceeded = $true
+    } | ConvertTo-Json -Depth 4 |
+        Set-Content -Encoding utf8 (Join-Path $output "graceful-shutdown.json")
 
     $succeeded = $true
 }
