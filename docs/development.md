@@ -74,6 +74,22 @@ Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`�
 同時に変更します。あわせて `docs/phase0.md` に記録した互換性チェックを
 実施してください。
 
+CIの `cross-build` jobは、Dockerfileの `dependencies` stageをGitHub Actions
+cacheの `cross-build` scopeへ保存します。このstageは固定toolchain、
+`cargo-xwin`、Windows SDKと、manifest・lockfileに対応するLinux/Windows依存crateを
+準備します。sourceだけを変更したrunでも、この依存layerを再利用します。workspace
+crateの追加、削除、移動や `build.rs` の追加時は、Dockerfileの `dependencies`
+stageにあるmanifest、仮source、build scriptのCOPYと生成処理も更新してください。
+
+2026-07-28のGitHub Actions run `30363597980` では、初回cache作成に7分2秒、
+同じcommitのwarm cacheで26秒かかりました。一方、全build layerをcacheへ保存する
+最初の方式はsource変更後に4分28秒かかりました。このため、実際のbuild結果はcacheへ
+exportせず、依存stageだけを保存する構成にしています。cacheは性能最適化だけに使用し、
+成果物の正しさや再現性の根拠にはしません。依存stageを初めて作成したrun
+`30365033771` は4分40秒でした。そのcacheを使った文書変更run
+`30365461282` は1分21秒、Rust source変更run `30365617118` は1分13秒で、
+source変更時も2分未満という目標を満たしました。
+
 ## Phase 0 の境界
 
 固定ポート7890と認証なしの `/healthz` は、単一インスタンスの起動確認用

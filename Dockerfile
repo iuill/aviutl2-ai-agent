@@ -1,10 +1,27 @@
 # syntax=docker/dockerfile:1.7
-FROM rust:1.88.0-bookworm AS build
+FROM rust:1.88.0-bookworm AS dependencies
 
+WORKDIR /src
+COPY rust-toolchain.toml ./
 RUN rustup target add x86_64-pc-windows-msvc \
  && cargo install cargo-xwin --version 0.19.2 --locked
-WORKDIR /src
-COPY . .
+COPY Cargo.toml Cargo.lock ./
+COPY crates/cli/Cargo.toml crates/cli/Cargo.toml
+COPY crates/plugin/Cargo.toml crates/plugin/Cargo.toml
+COPY crates/protocol/Cargo.toml crates/protocol/Cargo.toml
+RUN mkdir -p crates/cli/src crates/plugin/src crates/protocol/src \
+ && printf 'fn main() {}\n' > crates/cli/src/main.rs \
+ && printf '' > crates/plugin/src/lib.rs \
+ && printf '' > crates/protocol/src/lib.rs \
+ && cargo test --locked --workspace --no-run \
+ && cargo xwin build --locked --release --target x86_64-pc-windows-msvc -p aviutl2-ai-agent-plugin \
+ && cargo xwin build --locked --release --target x86_64-pc-windows-msvc -p aviutl2-ai-agent
+
+FROM dependencies AS build
+
+RUN rm -rf crates/cli/src crates/plugin/src crates/protocol/src
+COPY crates ./crates
+RUN find crates -type f -name '*.rs' -exec touch {} +
 RUN cargo fmt --all --check
 RUN cargo clippy --locked --workspace --all-targets -- -D warnings
 RUN cargo test --locked --workspace
