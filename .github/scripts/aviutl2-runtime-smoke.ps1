@@ -49,6 +49,44 @@ $environment | ConvertTo-Json -Depth 5 |
 $process = $null
 $succeeded = $false
 $failure = $null
+$trustApprovals = 0
+
+function Approve-AviUtl2PluginTrustDialog {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId
+    )
+
+    try {
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        $name = [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::NameProperty,
+            "このプラグイン・スクリプトを信頼して使用する"
+        )
+        $owner = [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
+            $ProcessId
+        )
+        $condition = [System.Windows.Automation.AndCondition]::new($name, $owner)
+        $button = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            $condition
+        )
+        if ($null -eq $button) {
+            return $false
+        }
+
+        $invoke = $button.GetCurrentPattern(
+            [System.Windows.Automation.InvokePattern]::Pattern
+        )
+        $invoke.Invoke()
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
 
 try {
     Invoke-WebRequest -Uri $AviUtl2Url -OutFile $archive
@@ -83,6 +121,10 @@ try {
             throw "AviUtl2 exited before /healthz became ready (exit code $($process.ExitCode))"
         }
 
+        if (Approve-AviUtl2PluginTrustDialog -ProcessId $process.Id) {
+            $trustApprovals++
+        }
+
         $healthOutput = & $cli health 2>&1 | Out-String
         $healthExitCode = $LASTEXITCODE
     } while ($healthExitCode -ne 0 -and [DateTime]::UtcNow -lt $deadline)
@@ -106,6 +148,11 @@ catch {
     $failure | Set-Content -Encoding utf8 (Join-Path $output "failure.txt")
 }
 finally {
+    [ordered]@{
+        approvedPluginTrustDialogs = $trustApprovals
+    } | ConvertTo-Json |
+        Set-Content -Encoding utf8 (Join-Path $output "trust-dialogs.json")
+
     $processState = [ordered]@{
         existed = $null -ne $process
         hadExitedBeforeCleanup = $null
