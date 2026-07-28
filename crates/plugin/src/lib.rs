@@ -1,12 +1,9 @@
-//! Phase 0 plugin spike.
-//!
-//! The HTTP server is deliberately transport-only for now. SDK calls will be
-//! added as individual probes after plugin lifecycle behavior is verified on
-//! a Windows host.
+//! Phase 1 read-only API plugin.
 
+mod editor;
 mod server;
 
-pub use server::{HealthServer, ServerError};
+pub use server::{ApiServer, ServerError};
 
 #[cfg(windows)]
 mod windows_plugin {
@@ -19,30 +16,30 @@ mod windows_plugin {
     use aviutl2::generic::{GenericPlugin, GenericPluginTable, GlobalEditHandle, HostAppHandle};
     use serde_json::json;
 
-    use crate::HealthServer;
+    use crate::ApiServer;
 
-    const LIFECYCLE_LOG_ENV: &str = "AVIUTL2_AI_AGENT_PHASE0_LIFECYCLE_LOG";
+    const LIFECYCLE_LOG_ENV: &str = "AVIUTL2_AI_AGENT_PHASE1_LIFECYCLE_LOG";
 
     pub(super) static EDIT_HANDLE: GlobalEditHandle = GlobalEditHandle::new();
 
     #[aviutl2::plugin(GenericPlugin)]
     struct AgentPlugin {
-        health_server: Option<HealthServer>,
+        api_server: Option<ApiServer>,
     }
 
     impl GenericPlugin for AgentPlugin {
         fn new(_info: aviutl2::AviUtl2Info) -> aviutl2::AnyResult<Self> {
-            let health_server = HealthServer::start("127.0.0.1:7890", 4)?;
+            let api_server = ApiServer::start("127.0.0.1:7890", 4)?;
             Ok(Self {
-                health_server: Some(health_server),
+                api_server: Some(api_server),
             })
         }
 
         fn plugin_info(&self) -> GenericPluginTable {
             GenericPluginTable {
-                name: "aviutl2-ai-agent Phase 0".to_owned(),
+                name: "aviutl2-ai-agent Phase 1".to_owned(),
                 information: format!(
-                    "aviutl2-ai-agent {} — SDK fact-finding probe",
+                    "aviutl2-ai-agent {} — local read-only API",
                     env!("CARGO_PKG_VERSION")
                 ),
             }
@@ -56,19 +53,17 @@ mod windows_plugin {
     impl Drop for AgentPlugin {
         fn drop(&mut self) {
             write_lifecycle_event("plugin_drop_started", None);
-            let observation = self
-                .health_server
-                .as_mut()
-                .map(HealthServer::shutdown)
-                .unwrap_or(crate::server::ShutdownObservation {
+            let observation = self.api_server.as_mut().map(ApiServer::shutdown).unwrap_or(
+                crate::server::ShutdownObservation {
                     worker_count: 0,
                     join_panics: 0,
-                });
+                },
+            );
             write_lifecycle_event(
                 "http_workers_joined",
                 Some((observation.worker_count, observation.join_panics)),
             );
-            self.health_server.take();
+            self.api_server.take();
             write_lifecycle_event("plugin_drop_completed", None);
         }
     }
@@ -102,4 +97,4 @@ mod windows_plugin {
 // Keep Linux workspace checks useful while the real entry point is Windows-only.
 #[cfg(not(windows))]
 #[unsafe(no_mangle)]
-pub extern "C" fn aviutl2_ai_agent_phase0_placeholder() {}
+pub extern "C" fn aviutl2_ai_agent_placeholder() {}

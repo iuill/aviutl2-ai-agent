@@ -15,16 +15,37 @@ pub enum HealthStatus {
     Degraded,
 }
 
-/// Phase 0 only: observation from invoking `call_read_section` on an HTTP worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReadSectionProbe {
-    pub success: bool,
-    pub worker_thread: String,
-    pub callback_thread: Option<String>,
-    pub elapsed_micros: u64,
-    pub scene_name: Option<String>,
-    pub error: Option<String>,
+pub struct Status {
+    pub status: HealthStatus,
+    pub plugin_version: String,
+    pub api_version: String,
+    pub listener_address: String,
+    pub process_id: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentScene {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApiError {
+    pub code: ErrorCode,
+    pub message: String,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    InvalidRequest,
+    RouteNotFound,
+    EditorBusy,
+    EditorUnavailable,
+    InternalError,
 }
 
 #[cfg(test)]
@@ -51,21 +72,51 @@ mod tests {
     }
 
     #[test]
-    fn read_section_probe_uses_camel_case() {
-        let probe = ReadSectionProbe {
-            success: true,
-            worker_thread: "ThreadId(2)".into(),
-            callback_thread: Some("ThreadId(2)".into()),
-            elapsed_micros: 42,
-            scene_name: Some("Scene 1".into()),
-            error: None,
+    fn phase1_responses_use_stable_field_names() {
+        let status = Status {
+            status: HealthStatus::Ok,
+            plugin_version: "0.0.1".into(),
+            api_version: "v1".into(),
+            listener_address: "127.0.0.1:7890".into(),
+            process_id: 42,
         };
-        let json = serde_json::to_string(&probe).unwrap();
-        assert!(json.contains(r#""workerThread":"ThreadId(2)""#));
-        assert!(json.contains(r#""elapsedMicros":42"#));
         assert_eq!(
-            serde_json::from_str::<ReadSectionProbe>(&json).unwrap(),
-            probe
+            serde_json::to_string(&status).unwrap(),
+            r#"{"status":"ok","pluginVersion":"0.0.1","apiVersion":"v1","listenerAddress":"127.0.0.1:7890","processId":42}"#
         );
+
+        let scene = CurrentScene {
+            name: "Scene 1".into(),
+        };
+        assert_eq!(
+            serde_json::to_string(&scene).unwrap(),
+            r#"{"name":"Scene 1"}"#
+        );
+    }
+
+    #[test]
+    fn api_error_uses_snake_case_code() {
+        let error = ApiError {
+            code: ErrorCode::EditorBusy,
+            message: "EditorGate is busy".into(),
+            retryable: true,
+        };
+        assert_eq!(
+            serde_json::to_string(&error).unwrap(),
+            r#"{"code":"editor_busy","message":"EditorGate is busy","retryable":true}"#
+        );
+    }
+
+    #[test]
+    fn phase1_responses_accept_unknown_fields() {
+        let status = serde_json::from_str::<Status>(
+            r#"{"status":"ok","pluginVersion":"0.0.1","apiVersion":"v1","listenerAddress":"127.0.0.1:7890","processId":42,"future":true}"#,
+        )
+        .unwrap();
+        assert_eq!(status.process_id, 42);
+
+        let scene =
+            serde_json::from_str::<CurrentScene>(r#"{"name":"Root","future":true}"#).unwrap();
+        assert_eq!(scene.name, "Root");
     }
 }

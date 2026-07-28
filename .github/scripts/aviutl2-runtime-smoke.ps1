@@ -192,7 +192,7 @@ try {
     Copy-Item -LiteralPath $cli -Destination (Join-Path $app "aviutl2-agent.exe")
 
     $lifecycleLog = Join-Path $output "plugin-lifecycle.jsonl"
-    $env:AVIUTL2_AI_AGENT_PHASE0_LIFECYCLE_LOG = $lifecycleLog
+    $env:AVIUTL2_AI_AGENT_PHASE1_LIFECYCLE_LOG = $lifecycleLog
     $process = Start-Process -FilePath $aviutl2 -WorkingDirectory $app -PassThru
     [ordered]@{
         processId = $process.Id
@@ -224,11 +224,24 @@ try {
         throw "/healthz did not become ready within 45 seconds"
     }
 
-    $readOutput = & $cli read-section 2>&1 | Out-String
-    $readExitCode = $LASTEXITCODE
-    $readOutput | Set-Content -Encoding utf8 (Join-Path $output "read-section.json")
-    if ($readExitCode -ne 0) {
-        throw "read-section failed with exit code $readExitCode"
+    $statusOutput = & $cli status 2>&1 | Out-String
+    $statusExitCode = $LASTEXITCODE
+    $statusOutput | Set-Content -Encoding utf8 (Join-Path $output "status.json")
+    if ($statusExitCode -ne 0) {
+        throw "status failed with exit code $statusExitCode"
+    }
+
+    $sceneDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $sceneOutput = & $cli current-scene 2>&1 | Out-String
+        $sceneExitCode = $LASTEXITCODE
+        if ($sceneExitCode -eq 3 -and [DateTime]::UtcNow -lt $sceneDeadline) {
+            Start-Sleep -Milliseconds 250
+        }
+    } while ($sceneExitCode -eq 3 -and [DateTime]::UtcNow -lt $sceneDeadline)
+    $sceneOutput | Set-Content -Encoding utf8 (Join-Path $output "current-scene.json")
+    if ($sceneExitCode -ne 0) {
+        throw "current-scene failed with exit code $sceneExitCode"
     }
 
     $idleClient = [System.Net.Sockets.TcpClient]::new()

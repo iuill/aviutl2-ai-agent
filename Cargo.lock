@@ -106,7 +106,9 @@ dependencies = [
  "anyhow",
  "aviutl2-ai-agent-protocol",
  "clap",
+ "serde",
  "serde_json",
+ "thiserror",
  "ureq",
 ]
 
@@ -116,6 +118,7 @@ version = "0.0.1"
 dependencies = [
  "aviutl2",
  "aviutl2-ai-agent-protocol",
+ "serde",
  "serde_json",
  "thiserror",
 ]

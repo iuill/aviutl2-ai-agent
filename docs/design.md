@@ -59,6 +59,35 @@ discovery、認証は必要性が生じた時点で一緒に設計します。
 port 7890をbindできない場合はplugin初期化を失敗させます。listenerなしの縮退状態では
 起動しません。
 
+### 最初のレスポンス契約
+
+`GET /v1/status` はpluginが保持するSDK非依存の値だけから次を返します。
+
+```json
+{
+  "status": "ok",
+  "pluginVersion": "0.0.1",
+  "apiVersion": "v1",
+  "listenerAddress": "127.0.0.1:7890",
+  "processId": 1234
+}
+```
+
+`status` は現時点では `ok` だけを返します。SDKのread可否を表しません。
+`listenerAddress` は実際にbindしたsocket address、`processId` はpluginをロードした
+AviUtl2 processのIDです。
+
+`GET /v1/scenes/current` は次を返します。
+
+```json
+{
+  "name": "Root"
+}
+```
+
+scene IDやproject情報は、SDK上の意味と寿命を確認してから加算的に追加します。
+response DTOは未知fieldを許容し、fieldの削除や意味の変更は行いません。
+
 DNS rebindingとbrowserからの単純なcross-origin GETを避けるため、Phase 1では
 `Host: 127.0.0.1:7890` 以外と、`Origin` headerを持つrequestを拒否します。
 この制約は認証や複数instance対応を導入するときに再設計します。
@@ -88,6 +117,19 @@ routeなし、内部エラーは `false` とします。内部詳細を無制限
 CLIは成功を0、usageまたはrequest不正を2、retryableな一時的利用不能を3、
 その他の失敗を1とします。code、retryable、CLI終了codeの対応と
 `Retry-After` の秒数は最初のPhase 1 PRでtestに固定します。
+
+最初の実装ではEditorGateの取得期限を100ms、`Retry-After` を1秒に固定します。
+CLIはrequest不正を終了code 2、`editor_busy` と `editor_unavailable` を終了code 3、
+その他のAPIエラーを終了code 1として扱います。CLI自身のusage errorはclapの
+終了code 2を維持します。
+
+EditorGateの取得順序はFIFOを保証しません。100msの期限はgate取得だけに適用し、
+取得後のSDK呼出し自体を中断しません。SDK呼出しが長時間完了しない場合、後続の
+SDK依存requestはbusyになりますが、`/healthz` と `/v1/status` は応答を続けます。
+gateは直列化tokenだけを保持するため、SDK呼出しのpanicでmutexがpoisonされた場合も
+poisonを解除し、後続requestで再利用します。
+
+Phase 1のHTTP serverはHost headerを必須とするHTTP/1.1 requestだけを受け付けます。
 
 ## Phase 1の完了条件
 

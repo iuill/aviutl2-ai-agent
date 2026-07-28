@@ -2,9 +2,9 @@
 
 | プラグイン | aviutl2-rs | 最小 AviUtl2 | 実機確認済み | Rust | API | ビルド経路 |
 |---|---|---|---|---|---|---|
-| 0.0.1（Phase 0） | 0.41.0 | 2.1.2（SDK wrapperの宣言値） | AviUtl2 2.1.2 / Windows 11、Windows Server 2022 | 1.88.0 | Phase 0 probeのみ | Linux Dockerクロスビルド・Windows native buildともロード確認済み |
+| 0.0.1（Phase 1開発中） | 0.41.0 | 2.1.2（SDK wrapperの宣言値） | Phase 0成果物のみ: AviUtl2 2.1.2 / Windows 11、Windows Server 2022 | 1.88.0 | `health`、`status`、current scene | Phase 1成果物はWindows未確認 |
 
-Windows 11では、プロジェクト識別子を現名称へ統一する前のLinux Docker
-クロスビルド成果物を確認しました。現名称のWindows native build成果物は、
-GitHub-hosted Windows runnerでロード、health、read section、正常終了を
-確認しています。
+Phase 0では、Windows 11上でLinux Dockerクロスビルド成果物を、GitHub-hosted
+Windows runner上でWindows native build成果物のロード、health、read section、
+正常終了を確認しました。Phase 1のAPIへ置き換えた現ソースのWindows実機確認は
+まだ行っていません。
