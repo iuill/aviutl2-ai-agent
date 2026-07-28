@@ -1,9 +1,10 @@
 # aviutl2-ai-agent
 
 起動中の AviUtl2 プロジェクトを、ローカルの構造化 API から操作するための
-Phase 0 技術スパイクです。現段階では製品版のアーキテクチャを実装せず、
-まず [`docs/phase0.md`](docs/phase0.md) に記載した AviUtl2 Plugin SDK の
-挙動を実測することを目標とします。
+プロジェクトです。AviUtl2 Plugin SDKの基本挙動を調べるPhase 0は完了し、
+現在は最小のread-only APIを作るPhase 1です。Phase 0の観測結果は
+[`docs/phase0.md`](docs/phase0.md)、現在の設計範囲は
+[`docs/design.md`](docs/design.md)を参照してください。
 
 これは非公式かつ実験段階のプロジェクトであり、AviUtl2公式のプロジェクトでは
 ありません。
