@@ -57,6 +57,15 @@ using System.Runtime.InteropServices;
 
 public static class AviUtl2NativeMethods
 {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr FindWindow(string className, string windowName);
 
@@ -80,6 +89,24 @@ public static class AviUtl2NativeMethods
         uint message,
         IntPtr wParam,
         IntPtr lParam
+    );
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr window);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(
+        uint flags,
+        uint x,
+        uint y,
+        uint data,
+        UIntPtr extraInfo
     );
 }
 "@
@@ -113,17 +140,42 @@ function Approve-AviUtl2PluginTrustDialog {
         "Button",
         "このプラグイン・スクリプトを信頼して使用する"
     )
-    if ($button -eq [IntPtr]::Zero) {
-        return $false
-    }
-
     try {
-        [void][AviUtl2NativeMethods]::SendMessage(
-            $button,
-            0x00F5,
-            [IntPtr]::Zero,
-            [IntPtr]::Zero
-        )
+        if ($button -ne [IntPtr]::Zero) {
+            [void][AviUtl2NativeMethods]::SendMessage(
+                $button,
+                0x00F5,
+                [IntPtr]::Zero,
+                [IntPtr]::Zero
+            )
+        }
+        else {
+            $rect = [AviUtl2NativeMethods+Rect]::new()
+            if (-not [AviUtl2NativeMethods]::GetWindowRect($dialog, [ref]$rect)) {
+                return $false
+            }
+
+            $width = $rect.Right - $rect.Left
+            $height = $rect.Bottom - $rect.Top
+            $x = $rect.Left + [int]($width * 0.31)
+            $y = $rect.Top + [int]($height * 0.87)
+            [void][AviUtl2NativeMethods]::SetForegroundWindow($dialog)
+            [void][AviUtl2NativeMethods]::SetCursorPos($x, $y)
+            [AviUtl2NativeMethods]::mouse_event(
+                0x0002,
+                0,
+                0,
+                0,
+                [UIntPtr]::Zero
+            )
+            [AviUtl2NativeMethods]::mouse_event(
+                0x0004,
+                0,
+                0,
+                0,
+                [UIntPtr]::Zero
+            )
+        }
         return $true
     }
     catch {
