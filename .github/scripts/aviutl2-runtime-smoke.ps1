@@ -51,36 +51,79 @@ $succeeded = $false
 $failure = $null
 $trustApprovals = 0
 
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class AviUtl2NativeMethods
+{
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string className, string windowName);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowEx(
+        IntPtr parent,
+        IntPtr childAfter,
+        string className,
+        string windowName
+    );
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(
+        IntPtr window,
+        out uint processId
+    );
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(
+        IntPtr window,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam
+    );
+}
+"@
+
 function Approve-AviUtl2PluginTrustDialog {
     param(
         [Parameter(Mandatory = $true)]
         [int]$ProcessId
     )
 
-    try {
-        Add-Type -AssemblyName UIAutomationClient
-        Add-Type -AssemblyName UIAutomationTypes
-        $name = [System.Windows.Automation.PropertyCondition]::new(
-            [System.Windows.Automation.AutomationElement]::NameProperty,
-            "このプラグイン・スクリプトを信頼して使用する"
-        )
-        $owner = [System.Windows.Automation.PropertyCondition]::new(
-            [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
-            $ProcessId
-        )
-        $condition = [System.Windows.Automation.AndCondition]::new($name, $owner)
-        $button = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
-            [System.Windows.Automation.TreeScope]::Descendants,
-            $condition
-        )
-        if ($null -eq $button) {
-            return $false
-        }
+    $dialog = [AviUtl2NativeMethods]::FindWindow(
+        $null,
+        "スクリプト・プラグインの追加"
+    )
+    if ($dialog -eq [IntPtr]::Zero) {
+        return $false
+    }
 
-        $invoke = $button.GetCurrentPattern(
-            [System.Windows.Automation.InvokePattern]::Pattern
+    [uint32]$ownerProcessId = 0
+    [void][AviUtl2NativeMethods]::GetWindowThreadProcessId(
+        $dialog,
+        [ref]$ownerProcessId
+    )
+    if ($ownerProcessId -ne $ProcessId) {
+        return $false
+    }
+
+    $button = [AviUtl2NativeMethods]::FindWindowEx(
+        $dialog,
+        [IntPtr]::Zero,
+        "Button",
+        "このプラグイン・スクリプトを信頼して使用する"
+    )
+    if ($button -eq [IntPtr]::Zero) {
+        return $false
+    }
+
+    try {
+        [void][AviUtl2NativeMethods]::SendMessage(
+            $button,
+            0x00F5,
+            [IntPtr]::Zero,
+            [IntPtr]::Zero
         )
-        $invoke.Invoke()
         return $true
     }
     catch {
