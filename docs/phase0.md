@@ -15,7 +15,7 @@
 | cross-build base image | `rust:1.88.0-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0` |
 | Windows バージョン | Windows 11 |
 
-各Qの「Phase 0範囲で完了」は、そのQを網羅した意味ではありません。最小Phase 1で
+各Qの「完了（Phase 0範囲）」は、そのQを網羅した意味ではありません。最小Phase 1で
 必要な観測を終え、残項目をAPI拡張直前またはPhase 2へ延期した状態です。
 
 ## 起動確認
@@ -62,7 +62,7 @@ port 7890が残留せず、再起動したプラグインが再bindできるこ�
 
 ## Q1 — section のスレッド親和性と再入性
 
-状態：**Phase 0範囲で完了（並列・終了競合はAPI拡張前へ延期）**
+状態：**完了（Phase 0範囲）** — 並列・終了競合はAPI拡張前へ繰延
 
 - [x] HTTP worker からread sectionを呼ぶためのPhase 0プローブを実装する
 - [x] HTTP worker から read section を呼ぶ（通常状態）
@@ -256,7 +256,7 @@ loopback HTTP応答、HTTP workerからのread section呼び出しが成立す�
 
 ## Q2 — Undo と部分失敗
 
-状態：**Phase 2へ延期**
+状態：**繰延（Phase 2開始前）**
 
 - [ ] 1つのedit sectionで2オブジェクトを変更し、Undoを1回実行する
 - [ ] 2件目のmutationを意図的に失敗させる
@@ -270,7 +270,7 @@ Undoの粒度と、部分的な変更が残るかを記録します。
 
 ## Q3 — フレームレンダリング
 
-状態：**必要なread APIを追加する直前へ延期**
+状態：**繰延（frame read API追加前）**
 
 - [ ] 明示したscene/frameをレンダリングする
 - [ ] 呼び出し元とcallbackのスレッドを記録する
@@ -285,7 +285,7 @@ Undoの粒度と、部分的な変更が残るかを記録します。
 
 ## Q4 — editor のbusy状態
 
-状態：**Phase 0範囲で完了（未観測のbusy状態はAPI拡張前へ延期）**
+状態：**完了（Phase 0範囲）** — 未観測のbusy状態はAPI拡張前へ繰延
 
 タイムラインのドラッグ中、modal dialog表示中、再生中、出力中、
 プロジェクトの読込・保存中、Undo/Redo中、終了中にread/write/renderを試します。
@@ -298,7 +298,7 @@ dialogの種類は未記録です。タイムラインのドラッグ中、出�
 
 ## Q5 — event、revision、handle
 
-状態：**Phase 0範囲で完了（eventとidentityはAPI拡張前へ延期）**
+状態：**完了（Phase 0範囲）** — eventとidentityはAPI拡張前へ繰延
 
 作成、更新、移動、削除、effect変更、scene切替、API由来の変更、Undo/Redo、
 プロジェクト再読込について、eventとhandleを記録します。eventが同期か、
@@ -310,7 +310,7 @@ dialogの種類は未記録です。タイムラインのドラッグ中、出�
 
 ## Q6 — Linux から Windows へのビルド
 
-状態：**Phase 0範囲で完了**
+状態：**完了（Phase 0範囲）**
 
 - [x] `cargo xwin` でpluginとCLIをビルドできる
 - [x] DLLを `.aux2` へ改名できる
@@ -339,7 +339,7 @@ bfe50cd1be3d43e6609af09ea5aea9d6089a29e2d5ced243d9e50a7b80ecee57  aviutl2-agent-
 
 ## Q8 — プラグインのunloadと所有スレッド
 
-状態：**Phase 0範囲で完了（厳密なDLL unload順序は延期）**
+状態：**完了（Phase 0範囲）** — 厳密なDLL unload順序は繰延
 
 最初の `tiny_http` スパイクは不採用としました。内部のkeep-alive taskが
 server値より長く生存し、unload後もDLL内のコードを実行する可能性があったためです。
@@ -386,7 +386,7 @@ plugin_drop_completed
 
 ## Q7 — Undo API の公開
 
-状態：**Phase 2へ延期**
+状態：**繰延（Phase 2開始前）**
 
 - [ ] SDKのUndo/Redo APIを探す
 - [ ] 人間の操作をUndoする可能性があるか確認する
@@ -409,6 +409,8 @@ Q1の並列・終了競合、Q3、Q4、Q5、`FreeLibrary` の順序は未検証�
 これらを保証せず、最初のPhase 1をSDK非依存のstatusと現在sceneのreadだけに限定します。
 timeline、object identity、event、renderなどへAPIを広げる場合は、対応する未検証項目を
 その直前に調査します。
+長時間SDK呼出し中の `/healthz` 応答はPhase 0の未完了項目にはせず、SDK非依存経路を
+維持するPhase 1の回帰testとして [`design.md`](design.md) に移しました。
 
 Phase 1の開始範囲とアーキテクチャ制約は [`design.md`](design.md) v0.5へ反映済みです。
 

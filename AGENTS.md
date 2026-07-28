@@ -19,7 +19,7 @@
 
 ## Phase の境界
 
-- Phase 1のread-only APIは `docs/design.md` v0.5の範囲から追加する。
+- Phase 1のread-only APIは `docs/design.md` の現行版に記載された範囲から追加する。
 - timeline、object、event、renderなどへ範囲を広げる前に、関連する
   `docs/phase0.md` の未検証項目を調査する。
 - read APIを追加または拡張するPRでは、`docs/design.md` のPhase 1範囲を同じPRで

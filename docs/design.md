@@ -14,7 +14,8 @@ Phase 0で確認できたこと:
 - 観測した通常、再生、モーダル表示、scene切替、project再読込後にreadが成功する
 - 観測した逐次呼出しでは、section callbackが呼出元workerと同じRust thread上で
   同期的に完了する
-- AviUtl2の正常終了時に全HTTP workerをjoinし、listenerを解放できる
+- GitHub-hosted runnerで観測した `WM_CLOSE` 正常終了経路では、全HTTP workerを
+  joinし、listenerを解放できる
 
 未検証のSDK挙動は保証しません。必要になったPhaseで、API範囲を広げる前に追加調査
 します。
@@ -44,6 +45,8 @@ discoveryはこの最初のsliceに含めません。利用価値を確かめな
 - SDK呼出しはtransportから分離した単一の `EditorGate` で直列化する
 - gate取得には上限時間を設け、取得できなければ明示的なbusy errorを返す
 - `/healthz` と `/v1/status` は `EditorGate` やSDK呼出しに依存させない
+- HTTP workerはpluginのsingleton lockを取得しない。workerが必要とする状態は
+  独立して保持し、plugin破棄中のworker joinとデッドロックさせない
 - SDKのhandle、enum、文字列所有権をHTTP DTOへ漏らさない
 - request DTOは未知fieldを拒否し、response DTOは加算的変更を許容する
 - event callbackから `call_edit_section` を呼ばない
@@ -56,6 +59,10 @@ discovery、認証は必要性が生じた時点で一緒に設計します。
 port 7890をbindできない場合はplugin初期化を失敗させます。listenerなしの縮退状態では
 起動しません。
 
+DNS rebindingとbrowserからの単純なcross-origin GETを避けるため、Phase 1では
+`Host: 127.0.0.1:7890` 以外と、`Origin` headerを持つrequestを拒否します。
+この制約は認証や複数instance対応を導入するときに再設計します。
+
 `/v1/status` はSDKのread可否を保証しません。`readAvailable` のような推測値は返さず、
 将来必要になった場合は最終成功時刻など、観測値であることが分かるfield名で追加します。
 
@@ -64,7 +71,11 @@ port 7890をbindできない場合はplugin初期化を失敗させます。list
 HTTPエラーはSDK固有値ではなく、次の形に固定します。
 
 ```json
-{ "code": "editor_busy", "message": "EditorGate is busy" }
+{
+  "code": "editor_busy",
+  "message": "EditorGate is busy",
+  "retryable": true
+}
 ```
 
 - routeなしは404、request不正は400
@@ -72,13 +83,16 @@ HTTPエラーはSDK固有値ではなく、次の形に固定します。
 - AviUtl2がreadを受け付けない場合は503
 - plugin内部エラーは500
 
-内部詳細を無制限に返しません。CLIは成功を0、usageまたはrequest不正を2、
-busyまたは一時的利用不能を3、その他の失敗を1とします。具体的なcode文字列と
+一時的に再試行できるbusyとread拒否だけ `retryable=true` とし、request不正、
+routeなし、内部エラーは `false` とします。内部詳細を無制限に返しません。
+CLIは成功を0、usageまたはrequest不正を2、retryableな一時的利用不能を3、
+その他の失敗を1とします。code、retryable、CLI終了codeの対応と
 `Retry-After` の秒数は最初のPhase 1 PRでtestに固定します。
 
 ## Phase 1の完了条件
 
 - `status` と `current scene` のHTTP/CLI契約がtestで固定されている
+- `/phase0/read-section` が削除され、SDK経路が `EditorGate` に一本化されている
 - Linuxのunit test、正規cross-build、GitHub-hosted Windows runtime smokeが通る
 - AviUtl2の通常終了時にworker joinの回帰検査が通る
 - 長時間SDK呼出しを模した状態でも `/healthz` が応答する回帰testが通る
