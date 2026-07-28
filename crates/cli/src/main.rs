@@ -1,9 +1,12 @@
-use anyhow::{Context, Result, bail};
-use aviutl2_ai_agent_protocol::{Health, ReadSectionProbe};
+use std::process::ExitCode;
+
+use anyhow::Context;
+use aviutl2_ai_agent_protocol::{ApiError, CurrentScene, ErrorCode, Health, Status};
 use clap::{Parser, Subcommand};
+use serde::de::DeserializeOwned;
 
 #[derive(Debug, Parser)]
-#[command(version, about = "AviUtl2 AI agent Phase 0 probe")]
+#[command(version, about = "AviUtl2 local read-only API client")]
 struct Args {
     #[arg(long, default_value = "http://127.0.0.1:7890")]
     endpoint: String,
@@ -13,62 +16,105 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Probe the plugin's gate-free health endpoint.
+    /// Check whether the plugin HTTP listener is alive.
     Health,
-    /// Phase 0 only: invoke a read section from an HTTP worker.
-    ReadSection,
+    /// Show SDK-independent plugin and listener status.
+    Status,
+    /// Read the currently selected scene.
+    CurrentScene,
 }
 
-fn main() -> Result<()> {
-    let args = Args::parse();
-    match args.command {
-        Command::Health => println!(
-            "{}",
-            serde_json::to_string_pretty(&get_health(&args.endpoint)?)?
-        ),
-        Command::ReadSection => println!(
-            "{}",
-            serde_json::to_string_pretty(&get_read_section_probe(&args.endpoint)?)?
-        ),
+fn main() -> ExitCode {
+    match run(Args::parse()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error:#}");
+            ExitCode::from(error.exit_code())
+        }
     }
+}
+
+fn run(args: Args) -> Result<(), ClientError> {
+    let output = match args.command {
+        Command::Health => {
+            serde_json::to_string_pretty(&get::<Health>(&args.endpoint, "/healthz", "health")?)
+        }
+        Command::Status => {
+            serde_json::to_string_pretty(&get::<Status>(&args.endpoint, "/v1/status", "status")?)
+        }
+        Command::CurrentScene => serde_json::to_string_pretty(&get::<CurrentScene>(
+            &args.endpoint,
+            "/v1/scenes/current",
+            "current scene",
+        )?),
+    }
+    .context("failed to serialize response")
+    .map_err(ClientError::Other)?;
+    println!("{output}");
     Ok(())
 }
 
-fn get_read_section_probe(base_endpoint: &str) -> Result<ReadSectionProbe> {
-    let endpoint = format!(
-        "{}/phase0/read-section",
-        base_endpoint.trim_end_matches('/')
-    );
-    let mut response = match ureq::get(&endpoint).call() {
-        Ok(response) => response,
-        Err(ureq::Error::StatusCode(status)) => {
-            bail!("read-section probe returned HTTP {status}");
-        }
-        Err(error) => {
-            return Err(error).with_context(|| format!("failed to connect to {endpoint}"));
-        }
-    };
-    response
-        .body_mut()
-        .read_json()
-        .context("invalid read-section probe response")
+#[derive(Debug, thiserror::Error)]
+enum ClientError {
+    #[error("API returned HTTP {status}: {error:?}")]
+    Api { status: u16, error: ApiError },
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
-fn get_health(base_endpoint: &str) -> Result<Health> {
-    let endpoint = format!("{}/healthz", base_endpoint.trim_end_matches('/'));
-    let mut response = match ureq::get(&endpoint).call() {
-        Ok(response) => response,
-        Err(ureq::Error::StatusCode(status)) => {
-            bail!("health endpoint returned HTTP {status}");
+impl ClientError {
+    fn exit_code(&self) -> u8 {
+        match self {
+            Self::Api {
+                error:
+                    ApiError {
+                        code: ErrorCode::InvalidRequest,
+                        ..
+                    },
+                ..
+            } => 2,
+            Self::Api {
+                error:
+                    ApiError {
+                        code: ErrorCode::EditorBusy | ErrorCode::EditorUnavailable,
+                        ..
+                    },
+                ..
+            } => 3,
+            Self::Api { .. } | Self::Other(_) => 1,
         }
-        Err(error) => {
-            return Err(error).with_context(|| format!("failed to connect to {endpoint}"));
-        }
-    };
+    }
+}
+
+fn get<T: DeserializeOwned>(
+    base_endpoint: &str,
+    path: &str,
+    response_name: &str,
+) -> Result<T, ClientError> {
+    let endpoint = format!("{}{path}", base_endpoint.trim_end_matches('/'));
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let mut response = agent
+        .get(&endpoint)
+        .call()
+        .with_context(|| format!("failed to connect to {endpoint}"))
+        .map_err(ClientError::Other)?;
+    let status = response.status().as_u16();
+    if !response.status().is_success() {
+        let error = response
+            .body_mut()
+            .read_json::<ApiError>()
+            .with_context(|| format!("invalid API error response from {endpoint}"))
+            .map_err(ClientError::Other)?;
+        return Err(ClientError::Api { status, error });
+    }
     response
         .body_mut()
         .read_json()
-        .context("invalid health response")
+        .with_context(|| format!("invalid {response_name} response"))
+        .map_err(ClientError::Other)
 }
 
 #[cfg(test)]
@@ -79,9 +125,9 @@ mod tests {
         thread,
     };
 
-    use aviutl2_ai_agent_protocol::HealthStatus;
+    use aviutl2_ai_agent_protocol::{CurrentScene, ErrorCode, HealthStatus, Status};
 
-    use super::{get_health, get_read_section_probe};
+    use super::{ClientError, get};
 
     fn serve_once(status: &str, body: &str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -103,31 +149,75 @@ mod tests {
     }
 
     #[test]
-    fn parses_health_response() {
+    fn parses_status_and_current_scene_responses() {
         let endpoint = serve_once(
             "200 OK",
-            r#"{"status":"ok","pluginVersion":"test-version"}"#,
+            r#"{"status":"ok","pluginVersion":"test","apiVersion":"v1","listenerAddress":"127.0.0.1:7890","processId":42}"#,
         );
-        let health = get_health(&endpoint).unwrap();
-        assert_eq!(health.status, HealthStatus::Ok);
-        assert_eq!(health.plugin_version, "test-version");
+        let status: Status = get(&endpoint, "/v1/status", "status").unwrap();
+        assert_eq!(status.status, HealthStatus::Ok);
+        assert_eq!(status.process_id, 42);
+
+        let endpoint = serve_once("200 OK", r#"{"name":"Scene 1"}"#);
+        let scene: CurrentScene = get(&endpoint, "/v1/scenes/current", "current scene").unwrap();
+        assert_eq!(scene.name, "Scene 1");
     }
 
     #[test]
-    fn reports_http_status_without_claiming_connection_failure() {
-        let endpoint = serve_once("404 Not Found", r#"{"error":"missing"}"#);
-        let error = get_health(&endpoint).unwrap_err().to_string();
-        assert_eq!(error, "health endpoint returned HTTP 404");
+    fn maps_request_error_to_exit_code_two() {
+        let endpoint = serve_once(
+            "400 Bad Request",
+            r#"{"code":"invalid_request","message":"bad request","retryable":false}"#,
+        );
+        let error = get::<Status>(&endpoint, "/v1/status", "status").unwrap_err();
+        assert_eq!(error.exit_code(), 2);
+        assert!(matches!(
+            error,
+            ClientError::Api {
+                error: aviutl2_ai_agent_protocol::ApiError {
+                    code: ErrorCode::InvalidRequest,
+                    retryable: false,
+                    ..
+                },
+                ..
+            }
+        ));
     }
 
     #[test]
-    fn parses_read_section_probe_response() {
+    fn maps_retryable_editor_errors_to_exit_code_three() {
+        for code in ["editor_busy", "editor_unavailable"] {
+            let endpoint = serve_once(
+                "503 Service Unavailable",
+                &format!(r#"{{"code":"{code}","message":"try later","retryable":true}}"#),
+            );
+            let error =
+                get::<CurrentScene>(&endpoint, "/v1/scenes/current", "current scene").unwrap_err();
+            assert_eq!(error.exit_code(), 3);
+        }
+    }
+
+    #[test]
+    fn maps_non_retryable_api_and_transport_errors_to_exit_code_one() {
         let endpoint = serve_once(
-            "200 OK",
-            r#"{"success":true,"workerThread":"ThreadId(2)","callbackThread":"ThreadId(2)","elapsedMicros":42,"sceneName":"Scene 1","error":null}"#,
+            "404 Not Found",
+            r#"{"code":"route_not_found","message":"missing","retryable":false}"#,
         );
-        let probe = get_read_section_probe(&endpoint).unwrap();
-        assert!(probe.success);
-        assert_eq!(probe.scene_name.as_deref(), Some("Scene 1"));
+        assert_eq!(
+            get::<Status>(&endpoint, "/v1/status", "status")
+                .unwrap_err()
+                .exit_code(),
+            1
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        assert_eq!(
+            get::<Status>(&endpoint, "/v1/status", "status")
+                .unwrap_err()
+                .exit_code(),
+            1
+        );
     }
 }
