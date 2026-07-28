@@ -383,16 +383,18 @@ plugin_drop_completed
 
 ## 結果
 
-Phase 0 完了判定：**未完了**
+Phase 0 完了判定：**完了（2026-07-28）**
 
-### Phase 1 read-only API の開始条件
+Phase 0はSDKの全項目を完了させる工程ではなく、安全な最小read-only実装へ進めるだけの
+事実を採取する技術スパイクとして完了します。起動、Windows load、HTTP workerからの
+read section、状態変更後のread、正常終了時のworker joinを確認できたためです。
 
-- 起動確認、unload、Q8のworker lifecycle
-- Q1の安全なread呼び出し経路
-- Q3（Phase 1でframe renderを含める場合）
-- Q4のread/render関連
-- Q5のproject reload、handle、object identity関連
-- Q6のクロスビルドとWindowsロード
+Q1の並列・終了競合、Q3、Q4、Q5、`FreeLibrary` の順序は未検証事項として残します。
+これらを保証せず、最初のPhase 1をSDK非依存のstatusと現在sceneのreadだけに限定します。
+timeline、object identity、event、renderなどへAPIを広げる場合は、対応する未検証項目を
+その直前に調査します。
+
+Phase 1の開始範囲とアーキテクチャ制約は [`design.md`](design.md) v0.5へ反映済みです。
 
 ### Phase 2 write API の開始条件
 
@@ -402,6 +404,4 @@ Phase 0 完了判定：**未完了**
 - Q5のwrite eventとrevision
 - Q7のUndo API公開可否
 
-Phase 1に必要な結果を記録した後、該当する未検証分岐を観測事実へ置き換え、
-read APIの実装前に、より短いv0.5を作成します。Q2とQ7はPhase 2の開始前までに
-確定します。
+Q2とQ7を含むwrite固有項目は、Phase 2の開始前までに確定します。

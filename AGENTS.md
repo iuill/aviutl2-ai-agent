@@ -2,9 +2,9 @@
 
 ## リポジトリ概要
 
-`aviutl2-ai-agent` は、AviUtl2 Plugin SDK の挙動を実測する Phase 0
-技術スパイクです。現段階では製品版 API の実装より、再現可能な検証と
-観測結果の記録を優先します。
+`aviutl2-ai-agent` は、AviUtl2をローカルの構造化APIから操作するための
+プロジェクトです。Phase 0のSDK技術スパイクは完了し、現在は最小のread-only APIを
+作るPhase 1です。未検証の挙動は必要になる直前に追加調査します。
 
 ## 参照
 
@@ -19,8 +19,9 @@
 
 ## Phase の境界
 
-- `docs/phase0.md` に記載された開始条件を満たし、設計へ反映するまで
-  read-only API を追加しない。
+- Phase 1のread-only APIは `docs/design.md` v0.5の範囲から追加する。
+- timeline、object、event、renderなどへ範囲を広げる前に、関連する
+  `docs/phase0.md` の未検証項目を調査する。
 - write API、Undo、Redo、プロジェクト保存は、Phase 2 の調査と設計が
   完了するまで公開しない。
 - Windows 実機で確認していない挙動を、確認済みまたは保証済みと記述しない。
