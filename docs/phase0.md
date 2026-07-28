@@ -21,7 +21,7 @@
 - [x] `.aux2` をロードし、プラグインを登録できる
 - [x] `GET /healthz` が応答する
 - [x] CLI が health 応答を解釈できる
-- [ ] プラグインのunload時に全HTTP workerが停止し、joinされる
+- [x] プラグインの正常終了時に全HTTP workerが停止し、joinされる
 - [ ] AviUtl2 がプロセス実行中にもDLLをunloadするのか、プロセス終了時だけかを確認する
 - [ ] 長時間のSDK操作中も `/healthz` がブロックされない
 
@@ -309,14 +309,15 @@ dialogの種類は未記録です。タイムラインのドラッグ中、出�
 - [x] DLLを `.aux2` へ改名できる
 - [x] 追加のruntime DLLを必要としない
 - [x] Linux Dockerクロスビルド成果物をWindows + AviUtl2でロードできる
-- [ ] Windows nativeビルド成果物をWindows + AviUtl2でロードできる
+- [x] Windows nativeビルド成果物をWindows + AviUtl2でロードできる
 
 2026-07-27にクロスビルドが完了しました。PEのexport tableには、期待する
 汎用プラグインABI（`RequiredVersion`、`InitializePlugin`、`RegisterPlugin`、
 `UninitializePlugin` および関連する初期化export）が含まれています。
 同日、Linux Dockerクロスビルド版のpluginとCLIについて、Windows 11 +
 AviUtl2 2.1.2実機でpluginのロードと登録、`GET /healthz`、CLIによる応答解釈を
-確認しました。Windows nativeビルド成果物のロードは未検証です。
+確認しました。Windows nativeビルド成果物はGitHub Actions run
+`30357153530` と `30359491277` でロードを確認しました。
 両ビルド経路の成果物はMSVC CRTを静的リンクしており、PE import検査では
 Windowsのsystem DLLだけが検出されています。
 
@@ -332,13 +333,40 @@ keep-alive clientと、終了後のport再bindを検証しています。worker�
 起動済みworkerを停止・joinしてlistenerを解放することをfailure injectionで確認します。
 
 - [ ] AviUtl2 が `FreeLibrary` より先に `UninitializePlugin` を呼ぶか確認する
-- [ ] `UninitializePlugin` 後にplugin threadが残らないことを確認する
-- [ ] idle状態のclientがunloadを遅延させないことを確認する
+- [x] 正常終了時のplugin破棄で全HTTP workerがjoinされることを確認する
+- [x] idle状態のclientが正常終了を遅延させないことを確認する
 - [x] プロセス再起動後にportが解放され、再bindできることを確認する
 
-> Windowsでは、プロセス終了・再起動後のport再bindを確認済みです。
-> `UninitializePlugin` と `FreeLibrary` の順序、worker joinの完了、
-> idle client接続中のunloadについては未検証です。
+### 2026-07-28 GitHub-hosted Windows runner正常終了観測
+
+GitHub Actions run `30359491277` の標準 `windows-2022` runnerで、
+AviUtl2 2.1.2を起動し、`health` と `read-section` の成功後に、データを送らない
+TCP clientをport 7890へ接続したままAviUtl2のメインウィンドウへ `WM_CLOSE` を
+送信しました。
+
+観測環境はWindows Server 2022 Datacenter build 20348、runner image
+`20260720.249.2`、AMD EPYC 7763でした。workflowはWindows native buildした
+commit `79f983993a8e6da5e6514b067f5bb2875d275756` のpluginを使用しました。
+AviUtl2 ZIPはGitHub Actions cacheから復元し、固定済みSHA-256
+`9de5d6bd372cd2b671d50ba93645571bb4c260f694b62d306507ec9d17d70b33`
+との一致を再確認したため、このrunでは公式配布元へアクセスしていません。
+
+pluginが記録したイベントは次の順序でした。
+
+```text
+plugin_drop_started
+http_workers_joined (workerCount=4, joinPanics=0)
+plugin_drop_completed
+```
+
+3イベントは同じ `ThreadId(5)` で記録され、worker joinは破棄完了マーカーより前に
+完了しました。`WM_CLOSE` 送信からAviUtl2の終了までは118 ms、exit codeは0でした。
+終了後、同じrunner processからport 7890へのbindにも成功しました。
+
+以上により、観測した正常終了経路ではidle clientがあっても全4 workerが停止・join
+され、plugin破棄完了後にlistenerが残らないことを確認しました。ただし、
+このplugin内の観測だけではAviUtl2による `UninitializePlugin` と `FreeLibrary` の
+厳密な呼出順までは証明できないため、その項目は未検証のまま残します。
 
 ## Q7 — Undo API の公開
 

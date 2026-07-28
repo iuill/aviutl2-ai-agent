@@ -42,6 +42,12 @@ pub struct HealthServer {
     workers: Vec<JoinHandle<()>>,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) struct ShutdownObservation {
+    pub(crate) worker_count: usize,
+    pub(crate) join_panics: usize,
+}
+
 impl HealthServer {
     pub fn start(address: &str, worker_count: usize) -> Result<Self, ServerError> {
         Self::start_with_spawner(address, worker_count, |index, listener, shutting_down| {
@@ -98,17 +104,25 @@ impl HealthServer {
         self.address
     }
 
-    fn shutdown(&mut self) {
+    pub(crate) fn shutdown(&mut self) -> ShutdownObservation {
         self.shutting_down.store(true, Ordering::Release);
+        let worker_count = self.workers.len();
+        let mut join_panics = 0;
         for worker in self.workers.drain(..) {
-            let _ = worker.join();
+            if worker.join().is_err() {
+                join_panics += 1;
+            }
+        }
+        ShutdownObservation {
+            worker_count,
+            join_panics,
         }
     }
 }
 
 impl Drop for HealthServer {
     fn drop(&mut self) {
-        self.shutdown();
+        let _ = self.shutdown();
     }
 }
 
@@ -298,7 +312,7 @@ mod tests {
     #[test]
     fn drop_joins_workers_and_releases_the_port() {
         let accepted = Arc::new(AtomicBool::new(false));
-        let server = HealthServer::start_with_spawner("127.0.0.1:0", 1, {
+        let mut server = HealthServer::start_with_spawner("127.0.0.1:0", 1, {
             let accepted = Arc::clone(&accepted);
             move |_, listener, shutting_down| {
                 let accepted = Arc::clone(&accepted);
@@ -334,9 +348,11 @@ mod tests {
         }
 
         let started = Instant::now();
-        drop(server);
+        let observation = server.shutdown();
         drop(idle_keep_alive);
 
+        assert_eq!(observation.worker_count, 1);
+        assert_eq!(observation.join_panics, 0);
         assert!(started.elapsed() < Duration::from_millis(500));
         TcpListener::bind(address).expect("listener must be released after drop");
     }
