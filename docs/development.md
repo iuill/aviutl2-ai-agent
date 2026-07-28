@@ -92,6 +92,8 @@ keyにしたGitHub Actions cacheへ保存します。cache miss時だけ公式�
 プログラム本体をリポジトリやworkflow artifactへ保存しません。
 
 このworkflowは、AviUtl2の起動、Phase 0 pluginのロード、`health`、
-`read-section`、終了後の観測ファイル作成だけを行います。GitHub-hosted runnerの
-GPU、DirectX、対話desktop、AviUtl2の初回確認が実行条件を満たすか自体が
-検証対象です。CIの必須チェックやpush triggerにはせず、手動実行でだけ起動します。
+`read-section` に加え、idle TCP clientを接続した状態での正常終了、全HTTP
+workerのjoin、終了後のport 7890再bindを検査します。失敗時のartifact採取に限り、
+残ったAviUtl2 processを強制終了します。GitHub-hosted runnerのGPU、DirectX、
+対話desktop、AviUtl2の初回確認が実行条件を満たすか自体も検証対象です。
+CIの必須チェックやpush triggerにはせず、手動実行でだけ起動します。
