@@ -9,34 +9,43 @@ use std::{
     time::Duration,
 };
 
-#[cfg(windows)]
-use aviutl2_ai_agent_protocol::ReadSectionProbe;
-use aviutl2_ai_agent_protocol::{Health, HealthStatus};
+use aviutl2_ai_agent_protocol::{ApiError, CurrentScene, ErrorCode, Health, HealthStatus, Status};
 
-#[cfg(windows)]
-use std::time::Instant;
+use crate::editor::{EditorError, EditorGate};
 
 const MAX_REQUEST_HEAD: usize = 8 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_millis(250);
 const ACCEPT_POLL: Duration = Duration::from_millis(5);
+const EDITOR_GATE_TIMEOUT: Duration = Duration::from_millis(100);
+const RETRY_AFTER_SECONDS: u64 = 1;
+const API_VERSION: &str = "v1";
+
+type SceneReader = dyn Fn() -> Result<String, EditorError> + Send + Sync;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
     #[error("worker_count must be greater than zero")]
     NoWorkers,
-    #[error("failed to bind health server: {0}")]
+    #[error("failed to bind API server: {0}")]
     Bind(#[source] std::io::Error),
-    #[error("failed to configure health listener: {0}")]
+    #[error("failed to configure API listener: {0}")]
     Configure(#[source] std::io::Error),
-    #[error("failed to spawn health worker: {0}")]
+    #[error("failed to spawn API worker: {0}")]
     Spawn(#[source] std::io::Error),
 }
 
-/// Minimal Phase 0 HTTP server whose threads are all owned and joined here.
+struct ServerContext {
+    status: Status,
+    expected_host: String,
+    editor_gate: EditorGate,
+    scene_reader: Arc<SceneReader>,
+}
+
+/// Loopback HTTP server whose threads and SDK access gate are owned here.
 ///
 /// Every response closes its connection. This prevents an idle keep-alive task
 /// from executing plugin code after AviUtl2 unloads the DLL.
-pub struct HealthServer {
+pub struct ApiServer {
     address: SocketAddr,
     shutting_down: Arc<AtomicBool>,
     workers: Vec<JoinHandle<()>>,
@@ -48,22 +57,33 @@ pub(crate) struct ShutdownObservation {
     pub(crate) join_panics: usize,
 }
 
-impl HealthServer {
+impl ApiServer {
     pub fn start(address: &str, worker_count: usize) -> Result<Self, ServerError> {
-        Self::start_with_spawner(address, worker_count, |index, listener, shutting_down| {
-            thread::Builder::new()
-                .name(format!("aviutl2-ai-agent-http-{index}"))
-                .spawn(move || worker_loop(listener, shutting_down))
-        })
+        Self::start_with_parts(
+            address,
+            worker_count,
+            platform_scene_reader(),
+            |index, listener, shutting_down, context| {
+                thread::Builder::new()
+                    .name(format!("aviutl2-ai-agent-http-{index}"))
+                    .spawn(move || worker_loop(listener, shutting_down, context))
+            },
+        )
     }
 
-    fn start_with_spawner<F>(
+    fn start_with_parts<F>(
         address: &str,
         worker_count: usize,
+        scene_reader: Arc<SceneReader>,
         mut spawn_worker: F,
     ) -> Result<Self, ServerError>
     where
-        F: FnMut(usize, Arc<TcpListener>, Arc<AtomicBool>) -> std::io::Result<JoinHandle<()>>,
+        F: FnMut(
+            usize,
+            Arc<TcpListener>,
+            Arc<AtomicBool>,
+            Arc<ServerContext>,
+        ) -> std::io::Result<JoinHandle<()>>,
     {
         if worker_count == 0 {
             return Err(ServerError::NoWorkers);
@@ -76,20 +96,36 @@ impl HealthServer {
         let address = listener.local_addr().map_err(ServerError::Configure)?;
         let listener = Arc::new(listener);
         let shutting_down = Arc::new(AtomicBool::new(false));
+        let context = Arc::new(ServerContext {
+            status: Status {
+                status: HealthStatus::Ok,
+                plugin_version: env!("CARGO_PKG_VERSION").to_owned(),
+                api_version: API_VERSION.to_owned(),
+                listener_address: address.to_string(),
+                process_id: std::process::id(),
+            },
+            expected_host: address.to_string(),
+            editor_gate: EditorGate::new(EDITOR_GATE_TIMEOUT),
+            scene_reader,
+        });
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
         for index in 0..worker_count {
-            let worker =
-                match spawn_worker(index, Arc::clone(&listener), Arc::clone(&shutting_down)) {
-                    Ok(worker) => worker,
-                    Err(error) => {
-                        shutting_down.store(true, Ordering::Release);
-                        for worker in workers.drain(..) {
-                            let _ = worker.join();
-                        }
-                        return Err(ServerError::Spawn(error));
+            let worker = match spawn_worker(
+                index,
+                Arc::clone(&listener),
+                Arc::clone(&shutting_down),
+                Arc::clone(&context),
+            ) {
+                Ok(worker) => worker,
+                Err(error) => {
+                    shutting_down.store(true, Ordering::Release);
+                    for worker in workers.drain(..) {
+                        let _ = worker.join();
                     }
-                };
+                    return Err(ServerError::Spawn(error));
+                }
+            };
             workers.push(worker);
         }
 
@@ -120,16 +156,20 @@ impl HealthServer {
     }
 }
 
-impl Drop for HealthServer {
+impl Drop for ApiServer {
     fn drop(&mut self) {
         let _ = self.shutdown();
     }
 }
 
-fn worker_loop(listener: Arc<TcpListener>, shutting_down: Arc<AtomicBool>) {
+fn worker_loop(
+    listener: Arc<TcpListener>,
+    shutting_down: Arc<AtomicBool>,
+    context: Arc<ServerContext>,
+) {
     while !shutting_down.load(Ordering::Acquire) {
         match listener.accept() {
-            Ok((stream, _)) => handle_connection(stream),
+            Ok((stream, _)) => handle_connection(stream, &context),
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(ACCEPT_POLL);
             }
@@ -138,7 +178,7 @@ fn worker_loop(listener: Arc<TcpListener>, shutting_down: Arc<AtomicBool>) {
     }
 }
 
-fn handle_connection(mut stream: TcpStream) {
+fn handle_connection(mut stream: TcpStream, context: &ServerContext) {
     if stream.set_read_timeout(Some(IO_TIMEOUT)).is_err() {
         return;
     }
@@ -147,122 +187,191 @@ fn handle_connection(mut stream: TcpStream) {
     }
     let _ = stream.set_nodelay(true);
 
+    let Some(request) = read_request_head(&mut stream) else {
+        return;
+    };
+    let response = route(&request, context);
+
+    let mut head = format!(
+        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
+        response.status,
+        response.body.len()
+    );
+    if let Some(retry_after) = response.retry_after {
+        head.push_str(&format!("Retry-After: {retry_after}\r\n"));
+    }
+    head.push_str("\r\n");
+    let _ = stream.write_all(head.as_bytes());
+    let _ = stream.write_all(&response.body);
+    let _ = stream.flush();
+}
+
+fn read_request_head(stream: &mut TcpStream) -> Option<String> {
     let mut request = Vec::with_capacity(512);
     let mut chunk = [0_u8; 512];
     while request.len() < MAX_REQUEST_HEAD {
         match stream.read(&mut chunk) {
-            Ok(0) | Err(_) => return,
+            Ok(0) | Err(_) => return None,
             Ok(count) => {
                 request.extend_from_slice(&chunk[..count]);
                 if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                    break;
+                    return std::str::from_utf8(&request).ok().map(str::to_owned);
                 }
             }
         }
     }
+    None
+}
 
-    let request_line = request
-        .split(|byte| *byte == b'\n')
-        .next()
-        .and_then(|line| std::str::from_utf8(line).ok())
-        .unwrap_or_default()
-        .trim_end_matches('\r');
+struct HttpResponse {
+    status: &'static str,
+    body: Vec<u8>,
+    retry_after: Option<u64>,
+}
 
-    let (status, content_type, body) =
-        if request_line == "GET /healthz HTTP/1.1" || request_line == "GET /healthz HTTP/1.0" {
-            let health = Health {
-                status: HealthStatus::Ok,
-                plugin_version: env!("CARGO_PKG_VERSION").to_owned(),
-            };
-            (
-                "200 OK",
-                "application/json",
-                serde_json::to_vec(&health).expect("Health is serializable"),
-            )
-        } else if request_line == "GET /phase0/read-section HTTP/1.1"
-            || request_line == "GET /phase0/read-section HTTP/1.0"
-        {
-            #[cfg(windows)]
-            {
-                (
-                    "200 OK",
-                    "application/json",
-                    serde_json::to_vec(&run_read_section_probe())
-                        .expect("ReadSectionProbe is serializable"),
-                )
-            }
-            #[cfg(not(windows))]
-            {
-                (
-                    "404 Not Found",
-                    "text/plain; charset=utf-8",
-                    b"not found".to_vec(),
-                )
-            }
-        } else {
-            (
-                "404 Not Found",
-                "text/plain; charset=utf-8",
-                b"not found".to_vec(),
-            )
+fn route(request: &str, context: &ServerContext) -> HttpResponse {
+    let mut lines = request.split("\r\n");
+    let request_line = lines.next().unwrap_or_default();
+    let mut host = None;
+    let mut has_origin = false;
+    for line in lines.take_while(|line| !line.is_empty()) {
+        let Some((name, value)) = line.split_once(':') else {
+            return api_error(
+                "400 Bad Request",
+                ErrorCode::InvalidRequest,
+                "Invalid request header",
+                false,
+                None,
+            );
         };
+        if name.eq_ignore_ascii_case("host") {
+            host = Some(value.trim());
+        } else if name.eq_ignore_ascii_case("origin") {
+            has_origin = true;
+        }
+    }
 
-    let head = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    let _ = stream.write_all(head.as_bytes());
-    let _ = stream.write_all(&body);
-    let _ = stream.flush();
+    if host != Some(context.expected_host.as_str()) || has_origin {
+        return api_error(
+            "400 Bad Request",
+            ErrorCode::InvalidRequest,
+            "Request origin is not allowed",
+            false,
+            None,
+        );
+    }
+
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next();
+    let path = parts.next();
+    let version = parts.next();
+    if parts.next().is_some()
+        || method != Some("GET")
+        || !matches!(version, Some("HTTP/1.0" | "HTTP/1.1"))
+    {
+        return api_error(
+            "400 Bad Request",
+            ErrorCode::InvalidRequest,
+            "Invalid request line",
+            false,
+            None,
+        );
+    }
+
+    match path {
+        Some("/healthz") => json_response(&Health {
+            status: HealthStatus::Ok,
+            plugin_version: env!("CARGO_PKG_VERSION").to_owned(),
+        }),
+        Some("/v1/status") => json_response(&context.status),
+        Some("/v1/scenes/current") => match context.editor_gate.read(|| (context.scene_reader)()) {
+            Ok(name) => json_response(&CurrentScene { name }),
+            Err(EditorError::Busy) => api_error(
+                "503 Service Unavailable",
+                ErrorCode::EditorBusy,
+                "EditorGate is busy",
+                true,
+                Some(RETRY_AFTER_SECONDS),
+            ),
+            Err(EditorError::Unavailable) => api_error(
+                "503 Service Unavailable",
+                ErrorCode::EditorUnavailable,
+                "AviUtl2 did not accept the read",
+                true,
+                Some(RETRY_AFTER_SECONDS),
+            ),
+            Err(EditorError::Internal) => api_error(
+                "500 Internal Server Error",
+                ErrorCode::InternalError,
+                "Plugin internal error",
+                false,
+                None,
+            ),
+        },
+        _ => api_error(
+            "404 Not Found",
+            ErrorCode::RouteNotFound,
+            "Route not found",
+            false,
+            None,
+        ),
+    }
+}
+
+fn json_response(value: &impl serde::Serialize) -> HttpResponse {
+    match serde_json::to_vec(value) {
+        Ok(body) => HttpResponse {
+            status: "200 OK",
+            body,
+            retry_after: None,
+        },
+        Err(_) => api_error(
+            "500 Internal Server Error",
+            ErrorCode::InternalError,
+            "Plugin internal error",
+            false,
+            None,
+        ),
+    }
+}
+
+fn api_error(
+    status: &'static str,
+    code: ErrorCode,
+    message: &str,
+    retryable: bool,
+    retry_after: Option<u64>,
+) -> HttpResponse {
+    let body = serde_json::to_vec(&ApiError {
+        code,
+        message: message.to_owned(),
+        retryable,
+    })
+    .expect("ApiError is serializable");
+    HttpResponse {
+        status,
+        body,
+        retry_after,
+    }
 }
 
 #[cfg(windows)]
-fn run_read_section_probe() -> ReadSectionProbe {
-    let worker_thread = format!("{:?}", thread::current().id());
-    if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
-        return ReadSectionProbe {
-            success: false,
-            worker_thread,
-            callback_thread: None,
-            elapsed_micros: 0,
-            scene_name: None,
-            error: Some("edit handle is not ready".into()),
-        };
-    }
+fn platform_scene_reader() -> Arc<SceneReader> {
+    Arc::new(|| {
+        if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+            return Err(EditorError::Unavailable);
+        }
+        crate::windows_plugin::EDIT_HANDLE
+            .call_read_section(|section| section.get_scene_name())
+            .ok()
+            .and_then(Result::ok)
+            .ok_or(EditorError::Unavailable)
+    })
+}
 
-    let started = Instant::now();
-    let result = crate::windows_plugin::EDIT_HANDLE.call_read_section(|section| {
-        let callback_thread = format!("{:?}", thread::current().id());
-        (callback_thread, section.get_scene_name())
-    });
-    let elapsed_micros = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
-
-    match result {
-        Ok((callback_thread, Ok(scene_name))) => ReadSectionProbe {
-            success: true,
-            worker_thread,
-            callback_thread: Some(callback_thread),
-            elapsed_micros,
-            scene_name: Some(scene_name),
-            error: None,
-        },
-        Ok((callback_thread, Err(error))) => ReadSectionProbe {
-            success: false,
-            worker_thread,
-            callback_thread: Some(callback_thread),
-            elapsed_micros,
-            scene_name: None,
-            error: Some(format!("read section callback failed: {error}")),
-        },
-        Err(error) => ReadSectionProbe {
-            success: false,
-            worker_thread,
-            callback_thread: None,
-            elapsed_micros,
-            scene_name: None,
-            error: Some(format!("call_read_section failed: {error}")),
-        },
-    }
+#[cfg(not(windows))]
+fn platform_scene_reader() -> Arc<SceneReader> {
+    Arc::new(|| Err(EditorError::Unavailable))
 }
 
 #[cfg(test)]
@@ -273,66 +382,177 @@ mod tests {
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
+            mpsc,
         },
         thread,
         time::{Duration, Instant},
     };
 
-    use aviutl2_ai_agent_protocol::{Health, HealthStatus};
+    use aviutl2_ai_agent_protocol::{
+        ApiError, CurrentScene, ErrorCode, Health, HealthStatus, Status,
+    };
 
-    use super::{ACCEPT_POLL, HealthServer, ServerError, handle_connection, worker_loop};
+    use super::{ACCEPT_POLL, ApiServer, EditorError, ServerError, handle_connection, worker_loop};
+
+    fn start(
+        reader: impl Fn() -> Result<String, EditorError> + Send + Sync + 'static,
+    ) -> ApiServer {
+        ApiServer::start_with_parts(
+            "127.0.0.1:0",
+            4,
+            Arc::new(reader),
+            |_, listener, shutting_down, context| {
+                thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
+            },
+        )
+        .unwrap()
+    }
 
     fn request(address: std::net::SocketAddr, path: &str) -> String {
-        let mut stream = TcpStream::connect(address).unwrap();
-        write!(
-            stream,
-            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n"
+        raw_request(
+            address,
+            &format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: keep-alive\r\n\r\n"),
         )
-        .unwrap();
+    }
+
+    fn raw_request(address: std::net::SocketAddr, request: &str) -> String {
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
         response
     }
 
+    fn body(response: &str) -> &str {
+        response.split_once("\r\n\r\n").unwrap().1
+    }
+
     #[test]
-    fn health_and_not_found_responses_close_the_connection() {
-        let server = HealthServer::start("127.0.0.1:0", 2).unwrap();
+    fn health_status_and_not_found_use_json_and_close_connection() {
+        let server = start(|| Ok("Root".into()));
 
         let response = request(server.local_addr(), "/healthz");
         assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(response.contains("\r\nConnection: close\r\n"));
-        let body = response.split_once("\r\n\r\n").unwrap().1;
-        let health: Health = serde_json::from_str(body).unwrap();
+        let health: Health = serde_json::from_str(body(&response)).unwrap();
         assert_eq!(health.status, HealthStatus::Ok);
+
+        let response = request(server.local_addr(), "/v1/status");
+        let status: Status = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(status.api_version, "v1");
+        assert_eq!(status.listener_address, server.local_addr().to_string());
 
         let response = request(server.local_addr(), "/missing");
         assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+        let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(error.code, ErrorCode::RouteNotFound);
+        assert!(!error.retryable);
+    }
+
+    #[test]
+    fn current_scene_uses_reader() {
+        let server = start(|| Ok("Scene 1".into()));
+        let response = request(server.local_addr(), "/v1/scenes/current");
+        let scene: CurrentScene = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(scene.name, "Scene 1");
+    }
+
+    #[test]
+    fn rejects_wrong_host_origin_and_invalid_method() {
+        let server = start(|| Ok("Root".into()));
+        let address = server.local_addr();
+        for request_head in [
+            "GET /healthz HTTP/1.1\r\nHost: attacker.example\r\n\r\n".to_owned(),
+            format!("GET /healthz HTTP/1.1\r\nHost: {address}\r\nOrigin: null\r\n\r\n"),
+            format!("POST /healthz HTTP/1.1\r\nHost: {address}\r\n\r\n"),
+        ] {
+            let response = raw_request(address, &request_head);
+            assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+            let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+            assert!(!error.retryable);
+        }
+    }
+
+    #[test]
+    fn busy_and_unavailable_are_retryable() {
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = std::sync::Mutex::new(release_rx);
+        let server = start(move || {
+            entered_tx.send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+            Ok("Root".into())
+        });
+        let address = server.local_addr();
+        let holder = thread::spawn(move || request(address, "/v1/scenes/current"));
+        entered_rx.recv().unwrap();
+
+        let response = request(server.local_addr(), "/v1/scenes/current");
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
+        assert!(response.contains("\r\nRetry-After: 1\r\n"));
+        let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(error.code, ErrorCode::EditorBusy);
+        assert!(error.retryable);
+
+        release_tx.send(()).unwrap();
+        let _ = holder.join().unwrap();
+
+        let unavailable = start(|| Err(EditorError::Unavailable));
+        let response = request(unavailable.local_addr(), "/v1/scenes/current");
+        let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(error.code, ErrorCode::EditorUnavailable);
+        assert!(error.retryable);
+    }
+
+    #[test]
+    fn health_and_status_respond_while_editor_gate_is_held() {
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = std::sync::Mutex::new(release_rx);
+        let server = start(move || {
+            entered_tx.send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+            Ok("Root".into())
+        });
+        let address = server.local_addr();
+        let holder = thread::spawn(move || request(address, "/v1/scenes/current"));
+        entered_rx.recv().unwrap();
+
+        let started = Instant::now();
+        assert!(request(server.local_addr(), "/healthz").starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(request(server.local_addr(), "/v1/status").starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(started.elapsed() < Duration::from_millis(100));
+
+        release_tx.send(()).unwrap();
+        let _ = holder.join().unwrap();
     }
 
     #[test]
     fn drop_joins_workers_and_releases_the_port() {
         let accepted = Arc::new(AtomicBool::new(false));
-        let mut server = HealthServer::start_with_spawner("127.0.0.1:0", 1, {
-            let accepted = Arc::clone(&accepted);
-            move |_, listener, shutting_down| {
+        let mut server =
+            ApiServer::start_with_parts("127.0.0.1:0", 1, Arc::new(|| Ok("Root".into())), {
                 let accepted = Arc::clone(&accepted);
-                thread::Builder::new().spawn(move || {
-                    while !shutting_down.load(Ordering::Acquire) {
-                        match listener.accept() {
-                            Ok((stream, _)) => {
-                                accepted.store(true, Ordering::Release);
-                                handle_connection(stream);
+                move |_, listener, shutting_down, context| {
+                    let accepted = Arc::clone(&accepted);
+                    thread::Builder::new().spawn(move || {
+                        while !shutting_down.load(Ordering::Acquire) {
+                            match listener.accept() {
+                                Ok((stream, _)) => {
+                                    accepted.store(true, Ordering::Release);
+                                    handle_connection(stream, &context);
+                                }
+                                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                    thread::sleep(ACCEPT_POLL);
+                                }
+                                Err(_) => break,
                             }
-                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                                thread::sleep(ACCEPT_POLL);
-                            }
-                            Err(_) => break,
                         }
-                    }
-                })
-            }
-        })
-        .unwrap();
+                    })
+                }
+            })
+            .unwrap();
         let address = server.local_addr();
         let mut idle_keep_alive = TcpStream::connect(address).unwrap();
         idle_keep_alive
@@ -360,7 +580,7 @@ mod tests {
     #[test]
     fn zero_workers_is_rejected() {
         assert!(matches!(
-            HealthServer::start("127.0.0.1:0", 0),
+            ApiServer::start("127.0.0.1:0", 0),
             Err(ServerError::NoWorkers)
         ));
     }
@@ -371,14 +591,15 @@ mod tests {
         let address = probe.local_addr().unwrap();
         drop(probe);
 
-        let result = HealthServer::start_with_spawner(
+        let result = ApiServer::start_with_parts(
             &address.to_string(),
             4,
-            |index, listener, shutting_down| {
+            Arc::new(|| Ok("Root".into())),
+            |index, listener, shutting_down, context| {
                 if index == 2 {
                     return Err(std::io::Error::other("injected spawn failure"));
                 }
-                thread::Builder::new().spawn(move || worker_loop(listener, shutting_down))
+                thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
             },
         );
         assert!(matches!(result, Err(ServerError::Spawn(_))));
