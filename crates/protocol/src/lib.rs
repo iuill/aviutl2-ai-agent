@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-// Temporary source-change marker for CI cache measurement.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Health {
