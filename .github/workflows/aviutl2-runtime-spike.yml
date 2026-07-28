@@ -2,10 +2,6 @@ name: AviUtl2 runtime spike
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - ".github/scripts/aviutl2-runtime-smoke.ps1"
-      - ".github/workflows/aviutl2-runtime-spike.yml"
 
 permissions:
   contents: read
@@ -21,6 +17,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Restore AviUtl2 download cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\aviutl2-runtime-spike\aviutl2.zip
+          key: aviutl2-v2.1.2-9de5d6bd372cd2b671d50ba93645571bb4c260f694b62d306507ec9d17d70b33
 
       - name: Build Windows plugin and CLI
         shell: pwsh

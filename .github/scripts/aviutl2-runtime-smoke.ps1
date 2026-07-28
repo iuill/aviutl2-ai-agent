@@ -160,10 +160,16 @@ function Approve-AviUtl2PluginTrustDialog {
 }
 
 try {
-    Invoke-WebRequest -Uri $AviUtl2Url -OutFile $archive
+    $downloadSource = "cache"
+    if (-not (Test-Path -LiteralPath $archive)) {
+        Invoke-WebRequest -Uri $AviUtl2Url -OutFile $archive
+        $downloadSource = "official-site"
+    }
+
     $actualHash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
     [ordered]@{
         url = $AviUtl2Url
+        source = $downloadSource
         expectedSha256 = $AviUtl2Sha256.ToLowerInvariant()
         actualSha256 = $actualHash
     } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $output "download.json")
