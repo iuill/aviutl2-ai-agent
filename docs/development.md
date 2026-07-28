@@ -91,4 +91,5 @@ Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`�
 このworkflowは、AviUtl2の起動、Phase 0 pluginのロード、`health`、
 `read-section`、終了後の観測ファイル作成だけを行います。GitHub-hosted runnerの
 GPU、DirectX、対話desktop、AviUtl2の初回確認が実行条件を満たすか自体が
-検証対象です。成功するまではCIの必須チェックやpush triggerにしません。
+検証対象です。workflowまたは実行スクリプトを変更するpull requestと手動実行で
+だけ起動し、成功するまではCIの必須チェックやpush triggerにしません。
