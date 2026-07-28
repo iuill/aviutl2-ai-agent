@@ -212,6 +212,41 @@ thread IDは呼び出したworkerと一致しました。これは逐次実行�
 プロジェクト読込処理そのものとread sectionの競合、終了処理との競合、
 モーダルダイアログの種類による差異は未検証です。
 
+### 2026-07-28 GitHub-hosted Windows runner観測
+
+GitHub Actions run `30357153530` の標準 `windows-2022` runnerで、AviUtl2
+2.1.2の公式ZIPを取得してSHA-256を検証し、native buildしたpluginとCLIを配置して
+AviUtl2を起動しました。AviUtl2のplugin信頼確認overlayは、対象processの
+メインウィンドウを確認したうえで1回だけ自動承認しました。
+
+観測環境はWindows Server 2022 Datacenter build 20348、runner image
+`20260720.249.2`、AMD EPYC 7763、Microsoft Hyper-V Videoでした。
+
+`health` と `read-section` は次の結果になりました。
+
+```json
+{
+  "status": "ok",
+  "pluginVersion": "0.0.1"
+}
+```
+
+```json
+{
+  "success": true,
+  "workerThread": "ThreadId(3)",
+  "callbackThread": "ThreadId(3)",
+  "elapsedMicros": 32,
+  "sceneName": "Root",
+  "error": null
+}
+```
+
+これにより、GitHub-hosted Windows runnerでもAviUtl2の無人起動、pluginロード、
+loopback HTTP応答、HTTP workerからのread section呼び出しが成立することを
+確認しました。runner終了時はハーネスがAviUtl2を強制終了しているため、
+この観測は `UninitializePlugin` とworker joinの検証には使用しません。
+
 ## Q2 — Undo と部分失敗
 
 状態：**未検証**
