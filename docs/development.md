@@ -80,6 +80,10 @@ warm cache時は固定toolchain、`cargo-xwin`、Windows SDK、Cargo依存関係
 変更されていないlayerを再利用します。cacheは性能最適化だけに使用し、成果物の
 正しさや再現性の根拠にはしません。
 
+2026-07-28のGitHub Actions run `30363597980` では、初回cache作成に7分2秒、
+同じcommitのwarm cacheで26秒かかりました。source変更後にも有効な短縮かを
+別runで継続確認します。
+
 ## Phase 0 の境界
 
 固定ポート7890と認証なしの `/healthz` は、単一インスタンスの起動確認用
