@@ -28,6 +28,16 @@ cargo run -p aviutl2-ai-agent -- health
    手順だけでは `UninitializePlugin` 内で全workerのjoinが完了したことまでは
    確認できません。
 
+Phase 0のread-section実測では、プロジェクトを開いて次を実行します。
+
+```powershell
+dist\aviutl2-agent.exe read-section
+```
+
+これはHTTP workerからSDKのread sectionを呼べるか調べる実験用コマンドです。
+製品版のread APIではありません。結果の記録項目と判定範囲は
+[`docs/phase0.md`](docs/phase0.md)を参照してください。
+
 ポート7890を固定しているのは、最初の単一インスタンス用スパイクだけです。
 セッション探索と衝突しない動的ポートは Phase 1 で実装します。
 別のプロセスがすでにポート7890を使用している場合、`InitializePlugin` は失敗し、

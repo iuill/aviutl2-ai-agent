@@ -1,0 +1,44 @@
+name: AviUtl2 runtime spike
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      AVIUTL2_URL: https://spring-fragrance.mints.ne.jp/aviutl/aviutl2_v2.1.2.zip
+      AVIUTL2_SHA256: 9de5d6bd372cd2b671d50ba93645571bb4c260f694b62d306507ec9d17d70b33
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Build Windows plugin and CLI
+        shell: pwsh
+        run: |
+          cargo build --locked --release -p aviutl2-ai-agent-plugin
+          cargo build --locked --release -p aviutl2-ai-agent
+
+      - name: Run AviUtl2
+        shell: pwsh
+        run: |
+          .\.github\scripts\aviutl2-runtime-smoke.ps1 `
+            -AviUtl2Url $env:AVIUTL2_URL `
+            -AviUtl2Sha256 $env:AVIUTL2_SHA256 `
+            -PluginDll .\target\release\aviutl2_agent_plugin.dll `
+            -CliExe .\target\release\aviutl2-agent.exe `
+            -OutputDirectory .\runtime-spike-results
+
+      - name: Upload observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aviutl2-runtime-spike-${{ github.run_id }}
+          path: runtime-spike-results
+          if-no-files-found: warn
+          retention-days: 7
