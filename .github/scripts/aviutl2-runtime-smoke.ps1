@@ -77,6 +77,16 @@ $previousSceneObservationLog = [Environment]::GetEnvironmentVariable(
     (Join-Path $output "scene-observations.jsonl"),
     "Process"
 )
+@(
+    "scene-observations.jsonl",
+    "plugin-lifecycle.jsonl",
+    "port-conflict-plugin-lifecycle.jsonl"
+) | ForEach-Object {
+    $staleLog = Join-Path $output $_
+    if (Test-Path -LiteralPath $staleLog) {
+        Remove-Item -LiteralPath $staleLog -Force
+    }
+}
 
 Add-Type -TypeDefinition @"
 using System;
@@ -329,6 +339,13 @@ try {
     $sceneOutput | Set-Content -Encoding utf8 (Join-Path $output "current-scene.json")
     if ($sceneExitCode -ne 0) {
         throw "current-scene failed with exit code $sceneExitCode"
+    }
+
+    $timelineResult = Invoke-CliCapture -Arguments @("current-timeline")
+    $timelineResult.Output |
+        Set-Content -Encoding utf8 (Join-Path $output "current-timeline.json")
+    if ($timelineResult.ExitCode -ne 0) {
+        throw "current-timeline failed with exit code $($timelineResult.ExitCode)"
     }
 
     $idleClient = [System.Net.Sockets.TcpClient]::new()

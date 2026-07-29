@@ -10,7 +10,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use aviutl2_ai_agent_protocol::{ApiError, CurrentScene, ErrorCode, Health, HealthStatus, Status};
+#[cfg(windows)]
+use aviutl2_ai_agent_protocol::FrameRate;
+use aviutl2_ai_agent_protocol::{
+    ApiError, CurrentScene, CurrentTimeline, ErrorCode, Health, HealthStatus, Status,
+};
 
 use crate::editor::{EditorError, EditorGate};
 
@@ -29,6 +33,7 @@ struct SceneRead {
 }
 
 type SceneReader = dyn Fn() -> Result<SceneRead, EditorError> + Send + Sync;
+type TimelineReader = dyn Fn() -> Result<CurrentTimeline, EditorError> + Send + Sync;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
@@ -47,6 +52,7 @@ struct ServerContext {
     expected_host: String,
     editor_gate: EditorGate,
     scene_reader: Arc<SceneReader>,
+    timeline_reader: Arc<TimelineReader>,
 }
 
 /// Loopback HTTP server whose threads and SDK access gate are owned here.
@@ -71,6 +77,7 @@ impl ApiServer {
             address,
             worker_count,
             platform_scene_reader(),
+            platform_timeline_reader(),
             |index, listener, shutting_down, context| {
                 thread::Builder::new()
                     .name(format!("aviutl2-ai-agent-http-{index}"))
@@ -83,6 +90,7 @@ impl ApiServer {
         address: &str,
         worker_count: usize,
         scene_reader: Arc<SceneReader>,
+        timeline_reader: Arc<TimelineReader>,
         mut spawn_worker: F,
     ) -> Result<Self, ServerError>
     where
@@ -115,6 +123,7 @@ impl ApiServer {
             expected_host: address.to_string(),
             editor_gate: EditorGate::new(EDITOR_GATE_TIMEOUT),
             scene_reader,
+            timeline_reader,
         });
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
@@ -309,6 +318,25 @@ fn route(request: &str, context: &ServerContext) -> HttpResponse {
                 Some(RETRY_AFTER_SECONDS),
             ),
         },
+        Some("/v1/scenes/current/timeline") => {
+            match context.editor_gate.read(|| (context.timeline_reader)()) {
+                Ok(timeline) => json_response(&timeline),
+                Err(EditorError::Busy) => api_error(
+                    "503 Service Unavailable",
+                    ErrorCode::EditorBusy,
+                    "EditorGate is busy",
+                    true,
+                    Some(RETRY_AFTER_SECONDS),
+                ),
+                Err(EditorError::Unavailable) => api_error(
+                    "503 Service Unavailable",
+                    ErrorCode::EditorUnavailable,
+                    "AviUtl2 did not accept the read",
+                    true,
+                    Some(RETRY_AFTER_SECONDS),
+                ),
+            }
+        }
         _ => api_error(
             "404 Not Found",
             ErrorCode::RouteNotFound,
@@ -395,8 +423,34 @@ fn platform_scene_reader() -> Arc<SceneReader> {
     })
 }
 
+#[cfg(windows)]
+fn platform_timeline_reader() -> Arc<TimelineReader> {
+    Arc::new(|| {
+        if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+            return Err(EditorError::Unavailable);
+        }
+        let info = crate::windows_plugin::EDIT_HANDLE.get_edit_info();
+        Ok(CurrentTimeline {
+            width: info.width,
+            height: info.height,
+            frame_rate: FrameRate {
+                numerator: *info.fps.numer(),
+                denominator: *info.fps.denom(),
+            },
+            cursor_frame: info.frame,
+            object_end_frame: info.frame_max,
+            highest_object_layer: info.layer_max,
+        })
+    })
+}
+
 #[cfg(not(windows))]
 fn platform_scene_reader() -> Arc<SceneReader> {
+    Arc::new(|| Err(EditorError::Unavailable))
+}
+
+#[cfg(not(windows))]
+fn platform_timeline_reader() -> Arc<TimelineReader> {
     Arc::new(|| Err(EditorError::Unavailable))
 }
 
@@ -427,6 +481,7 @@ mod tests {
             "127.0.0.1:0",
             4,
             Arc::new(reader),
+            Arc::new(|| Ok(timeline())),
             |_, listener, shutting_down, context| {
                 thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
             },
@@ -438,6 +493,20 @@ mod tests {
         super::SceneRead {
             name: name.to_owned(),
             raw_scene_id: Some(raw_scene_id),
+        }
+    }
+
+    fn timeline() -> aviutl2_ai_agent_protocol::CurrentTimeline {
+        aviutl2_ai_agent_protocol::CurrentTimeline {
+            width: 1920,
+            height: 1080,
+            frame_rate: aviutl2_ai_agent_protocol::FrameRate {
+                numerator: 30,
+                denominator: 1,
+            },
+            cursor_frame: 0,
+            object_end_frame: 0,
+            highest_object_layer: 0,
         }
     }
 
@@ -488,6 +557,16 @@ mod tests {
         let response = request(server.local_addr(), "/v1/scenes/current");
         let scene: CurrentScene = serde_json::from_str(body(&response)).unwrap();
         assert_eq!(scene.name, "Scene 1");
+    }
+
+    #[test]
+    fn current_timeline_uses_sdk_independent_dto() {
+        let server = start(|| Ok(scene("Root", 0)));
+        let response = request(server.local_addr(), "/v1/scenes/current/timeline");
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        let actual: aviutl2_ai_agent_protocol::CurrentTimeline =
+            serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(actual, timeline());
     }
 
     #[test]
@@ -565,8 +644,12 @@ mod tests {
     #[test]
     fn drop_joins_workers_and_releases_the_port() {
         let accepted = Arc::new(AtomicBool::new(false));
-        let mut server =
-            ApiServer::start_with_parts("127.0.0.1:0", 1, Arc::new(|| Ok(scene("Root", 0))), {
+        let mut server = ApiServer::start_with_parts(
+            "127.0.0.1:0",
+            1,
+            Arc::new(|| Ok(scene("Root", 0))),
+            Arc::new(|| Ok(timeline())),
+            {
                 let accepted = Arc::clone(&accepted);
                 move |_, listener, shutting_down, context| {
                     let accepted = Arc::clone(&accepted);
@@ -585,8 +668,9 @@ mod tests {
                         }
                     })
                 }
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
         let address = server.local_addr();
         let mut idle_keep_alive = TcpStream::connect(address).unwrap();
         idle_keep_alive
@@ -629,6 +713,7 @@ mod tests {
             &address.to_string(),
             4,
             Arc::new(|| Ok(scene("Root", 0))),
+            Arc::new(|| Ok(timeline())),
             |index, listener, shutting_down, context| {
                 if index == 2 {
                     return Err(std::io::Error::other("injected spawn failure"));

@@ -28,16 +28,18 @@ Phase 1では、現在のAviUtl2状態をローカルから読み取る小さな
 ```http
 GET /v1/status
 GET /v1/scenes/current
+GET /v1/scenes/current/timeline
 ```
 
 - `/v1/status` はSDKを呼ばず、process、plugin、API、listenerなどplugin自身の状態を返す
 - `/v1/scenes/current` はread section内で現在sceneを読み、SDK型を含まないDTOを返す
-- CLIには対応する `status` と `current-scene` を追加する
+- `/v1/scenes/current/timeline` はcurrent sceneの編集情報を所有DTOへコピーして返す
+- CLIには対応する `status`、`current-scene`、`current-timeline` を追加する
 - 現行の `/healthz` はliveness専用として維持する
 - `/phase0/read-section` は最初のPhase 1実装PRで削除し、gateを迂回するSDK経路を残さない
 
-timeline、object、effect、font、frame render、event recorder、project epoch、session
-discoveryはこの最初のsliceに含めません。利用価値を確かめながら、必要なものを1種類ずつ
+object、effect、font、frame render、event recorder、project epoch、session discoveryは
+timeline概要のsliceに含めません。利用価値を確かめながら、必要なものを1種類ずつ
 追加します。
 
 最初のsliceの次に調べるread対象はcurrent scene identityです。`aviutl2` 0.41.0と
@@ -97,6 +99,28 @@ AviUtl2 processのIDです。
 
 scene IDやproject情報は、SDK上の意味と寿命を確認してから加算的に追加します。
 response DTOは未知fieldを許容し、fieldの削除や意味の変更は行いません。
+
+`GET /v1/scenes/current/timeline` は次を返します。
+
+```json
+{
+  "width": 1920,
+  "height": 1080,
+  "frameRate": {
+    "numerator": 30,
+    "denominator": 1
+  },
+  "cursorFrame": 0,
+  "objectEndFrame": 0,
+  "highestObjectLayer": 0
+}
+```
+
+frameとlayerはSDKに合わせて0始まりです。`objectEndFrame` と
+`highestObjectLayer` はそれぞれSDKの `frame_max` と `layer_max` の観測値で、
+sceneのdurationやlayer数とは定義しません。空のsceneでも0になり得るため、
+objectの存在有無を推測する用途には使いません。scene ID、SDK handle、選択状態は
+返しません。
 
 DNS rebindingとbrowserからの単純なcross-origin GETを避けるため、Phase 1では
 `Host: 127.0.0.1:7890` 以外と、`Origin` headerを持つrequestを拒否します。

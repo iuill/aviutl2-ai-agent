@@ -1,7 +1,9 @@
 use std::process::ExitCode;
 
 use anyhow::Context;
-use aviutl2_ai_agent_protocol::{ApiError, CurrentScene, ErrorCode, Health, Status};
+use aviutl2_ai_agent_protocol::{
+    ApiError, CurrentScene, CurrentTimeline, ErrorCode, Health, Status,
+};
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 
@@ -22,6 +24,8 @@ enum Command {
     Status,
     /// Read the currently selected scene.
     CurrentScene,
+    /// Read the current scene timeline summary.
+    CurrentTimeline,
 }
 
 fn main() -> ExitCode {
@@ -46,6 +50,11 @@ fn run(args: Args) -> Result<(), ClientError> {
             &args.endpoint,
             "/v1/scenes/current",
             "current scene",
+        )?),
+        Command::CurrentTimeline => serde_json::to_string_pretty(&get::<CurrentTimeline>(
+            &args.endpoint,
+            "/v1/scenes/current/timeline",
+            "current timeline",
         )?),
     }
     .context("failed to serialize response")
@@ -125,7 +134,9 @@ mod tests {
         thread,
     };
 
-    use aviutl2_ai_agent_protocol::{CurrentScene, ErrorCode, HealthStatus, Status};
+    use aviutl2_ai_agent_protocol::{
+        CurrentScene, CurrentTimeline, ErrorCode, HealthStatus, Status,
+    };
 
     use super::{ClientError, get};
 
@@ -161,6 +172,15 @@ mod tests {
         let endpoint = serve_once("200 OK", r#"{"name":"Scene 1"}"#);
         let scene: CurrentScene = get(&endpoint, "/v1/scenes/current", "current scene").unwrap();
         assert_eq!(scene.name, "Scene 1");
+
+        let endpoint = serve_once(
+            "200 OK",
+            r#"{"width":1920,"height":1080,"frameRate":{"numerator":30,"denominator":1},"cursorFrame":12,"objectEndFrame":99,"highestObjectLayer":2}"#,
+        );
+        let timeline: CurrentTimeline =
+            get(&endpoint, "/v1/scenes/current/timeline", "current timeline").unwrap();
+        assert_eq!(timeline.cursor_frame, 12);
+        assert_eq!(timeline.frame_rate.numerator, 30);
     }
 
     #[test]

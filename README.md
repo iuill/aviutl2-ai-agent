@@ -17,6 +17,7 @@ cargo test --workspace
 cargo run -p aviutl2-ai-agent -- health
 cargo run -p aviutl2-ai-agent -- status
 cargo run -p aviutl2-ai-agent -- current-scene
+cargo run -p aviutl2-ai-agent -- current-timeline
 ```
 
 各コマンドは、Windows 上のプラグインが
@@ -28,7 +29,8 @@ cargo run -p aviutl2-ai-agent -- current-scene
 2. AviUtl2 を起動し、プラグイン情報に `aviutl2-ai-agent Phase 1` が表示されることを確認します。
 3. `dist\aviutl2-agent.exe health` を実行します。
 4. `dist\aviutl2-agent.exe status` を実行します。
-5. プロジェクトを開き、`dist\aviutl2-agent.exe current-scene` を実行します。
+5. プロジェクトを開き、`dist\aviutl2-agent.exe current-scene` と
+   `dist\aviutl2-agent.exe current-timeline` を実行します。
 6. AviUtl2 を終了して再起動し、手順3を繰り返します。再起動後も成功すれば、
    プロセス終了後にポート7890を再利用できることを確認できます。ただし、この
    手順だけでは `UninitializePlugin` 内で全workerのjoinが完了したことまでは

@@ -60,6 +60,13 @@ Rootへの再切替を順にCLIで読み、SDKから得たraw scene IDを診断�
 この観測は同一process内の往復に限られます。project再読込、別project、同名scene、
 scene削除後のID再利用は未確認であり、IDは公開APIに含めていません。
 
+同じ環境でcurrent timeline概要を追加したWindows native release buildも検証しました。
+空のRootで `1920x1080`、frame rate `30/1`、cursor frame 0、SDKの
+`frame_max=0`、`layer_max=0` をCLIから読み取れました。runtime smokeはidle clientを
+接続したまま4 workerをpanicなしでjoinし、exit code 0で終了した後にportを再bind
+できました。これらの最大値は空のsceneでも0になるため、objectの存在やscene durationを
+表す値とは扱いません。
+
 ## 2026-07-28 port 7890競合時の観測
 
 最初に、port 7890を先に占有し、plugin初期化からbind errorを返す実装を

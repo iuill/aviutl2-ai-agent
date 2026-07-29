@@ -32,6 +32,24 @@ pub struct CurrentScene {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentTimeline {
+    pub width: usize,
+    pub height: usize,
+    pub frame_rate: FrameRate,
+    pub cursor_frame: usize,
+    pub object_end_frame: usize,
+    pub highest_object_layer: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameRate {
+    pub numerator: i32,
+    pub denominator: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
     pub code: ErrorCode,
     pub message: String,
@@ -91,6 +109,22 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&scene).unwrap(),
             r#"{"name":"Scene 1"}"#
+        );
+
+        let timeline = CurrentTimeline {
+            width: 1920,
+            height: 1080,
+            frame_rate: FrameRate {
+                numerator: 30,
+                denominator: 1,
+            },
+            cursor_frame: 12,
+            object_end_frame: 99,
+            highest_object_layer: 2,
+        };
+        assert_eq!(
+            serde_json::to_string(&timeline).unwrap(),
+            r#"{"width":1920,"height":1080,"frameRate":{"numerator":30,"denominator":1},"cursorFrame":12,"objectEndFrame":99,"highestObjectLayer":2}"#
         );
     }
 

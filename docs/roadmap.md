@@ -52,11 +52,13 @@ IDの寿命を実測できなければ公開せず、内部の観測値に留め
 
 ### 1C: current sceneのtimeline / object read
 
+状態: **timeline概要を実装・Windows実測済み**
+
 current scene identityの扱いを決めた後、利用価値を確認しながら次を1種類ずつ
 追加します。
 
 1. projectの観測可能なmetadata
-2. current sceneのtimeline概要
+2. [完了] current sceneのtimeline概要
 3. object一覧と個別取得
 4. effectの列挙と取得できるmetadata
 
