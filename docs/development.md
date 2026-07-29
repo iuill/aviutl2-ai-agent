@@ -115,3 +115,15 @@ AviUtl2を再起動し、plugin初期化が完了しなくてもAviUtl2本体が
 GitHub-hosted runnerのGPU、DirectX、対話desktop、AviUtl2の初回確認が実行条件を
 満たすか自体も検証対象です。
 CIの必須チェックやpush triggerにはせず、手動実行でだけ起動します。
+
+## Read-only MCP
+
+MCP serverはAviUtl2 process外でstdio serverとして起動し、既定では
+`http://127.0.0.1:7890` のplugin APIを使います。
+
+```bash
+cargo run -p aviutl2-ai-agent-mcp
+```
+
+別endpointを使うローカルtestでは `--endpoint` を指定できます。MCP toolはHTTP APIを
+迂回せず、現時点ではcurrent sceneとcurrent timelineのreadだけを公開します。

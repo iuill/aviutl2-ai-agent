@@ -113,6 +113,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "aviutl2-ai-agent-mcp"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "aviutl2-ai-agent-protocol",
+ "clap",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "aviutl2-ai-agent-plugin"
 version = "0.0.1"
 dependencies = [

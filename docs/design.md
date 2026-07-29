@@ -49,6 +49,11 @@ Plugin SDK定義にはcurrent sceneのIDと名前がありますが、scene一�
 readを候補とし、current以外のsceneを推測で選択するAPIは公開しません。
 Phase 3までの実施順序は [`roadmap.md`](roadmap.md)で管理します。
 
+Phase 1.5ではprocess外のstdio MCP serverを追加します。MCP toolはplugin SDKを
+直接呼ばず、HTTP APIと同じvalidation、EditorGate、エラー境界を通ります。最初の
+toolは引数を持たない `get_current_scene` と `get_current_timeline` に限定し、
+write toolは含めません。
+
 ## 実装境界
 
 - SDK呼出しはtransportから分離した単一の `EditorGate` で直列化する

@@ -20,6 +20,15 @@ cargo run -p aviutl2-ai-agent -- current-scene
 cargo run -p aviutl2-ai-agent -- current-timeline
 ```
 
+read-only MCP serverはstdioで起動します。
+
+```bash
+cargo run -p aviutl2-ai-agent-mcp
+```
+
+公開するtoolは `get_current_scene` と `get_current_timeline` だけで、MCP server自身も
+loopback HTTP APIを経由します。
+
 各コマンドは、Windows 上のプラグインが
 `http://127.0.0.1:7890` で待ち受けていることを前提とします。
 

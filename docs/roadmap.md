@@ -69,6 +69,8 @@ current以外のsceneを明示するAPIは、sceneを安全に選択・列挙で
 
 ### 1.5: Read-only MCP
 
+状態: **scene / timeline toolを実装**
+
 HTTP/CLIのread契約を実利用で評価できる段階で、AviUtl2 process外のstdio serverとして
 追加します。最初はproject/scene、object、必要ならframeの最大3 toolに絞ります。
 MCPはpluginのvalidationを迂回せず、write toolを含めません。
