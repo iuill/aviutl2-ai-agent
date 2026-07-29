@@ -2,9 +2,9 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use aviutl2_ai_agent_protocol::{
-    ApiError, CurrentObjects, CurrentScene, CurrentTimeline, DeleteObjectRequest,
-    DeleteObjectResponse, ErrorCode, Health, MoveObjectDestination, MoveObjectRequest,
-    MoveObjectResponse, Status, TimelineObject,
+    ApiError, CreateTextObjectRequest, CreateTextObjectResponse, CurrentObjects, CurrentScene,
+    CurrentTimeline, DeleteObjectRequest, DeleteObjectResponse, ErrorCode, Health,
+    MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status, TimelineObject,
 };
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
@@ -60,6 +60,19 @@ enum Command {
         end_frame: usize,
         #[arg(long)]
         name: Option<String>,
+    },
+    /// Create one text object with a single alias-based SDK mutation.
+    CreateText {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        layer: usize,
+        #[arg(long)]
+        start_frame: usize,
+        #[arg(long)]
+        length: usize,
+        #[arg(long)]
+        text: String,
     },
 }
 
@@ -141,6 +154,24 @@ fn run(args: Args) -> Result<(), ClientError> {
                 },
             },
             "delete object",
+        )?),
+        Command::CreateText {
+            expected_scene_name,
+            layer,
+            start_frame,
+            length,
+            text,
+        } => serde_json::to_string_pretty(&post::<CreateTextObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/text",
+            &CreateTextObjectRequest {
+                expected_scene_name,
+                layer,
+                start_frame,
+                length,
+                text,
+            },
+            "create text object",
         )?),
     }
     .context("failed to serialize response")

@@ -95,6 +95,10 @@ read/write、write/write並列呼び出しは必須完了条件にしません�
 edit内readと連続呼出しが成立しました。入れ子、並列、終了競合は未検証です。probeは
 実測後に製品buildから除去し、公開write経路にはしていません。
 
+2026-07-29に同じ環境で、FlaUIから作成した既定text objectのaliasを一時診断buildで
+取得しました。先頭effectは`テキスト`、本文の項目名も`テキスト`で、2番目のeffectは
+`標準描画`でした。診断buildとraw aliasは製品worktreeへ残していません。
+
 ### HTTP worker read-sectionプローブ
 
 `GET /phase0/read-section` は、HTTP workerから `call_read_section` を1回呼び、

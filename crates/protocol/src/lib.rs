@@ -99,6 +99,23 @@ pub struct DeleteObjectResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateTextObjectRequest {
+    pub expected_scene_name: String,
+    pub layer: usize,
+    pub start_frame: usize,
+    pub length: usize,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTextObjectResponse {
+    pub object: TimelineObject,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
     pub code: ErrorCode,
     pub message: String,
@@ -229,6 +246,16 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn create_text_request_uses_strict_camel_case_contract() {
+        let json =
+            r#"{"expectedSceneName":"Root","layer":1,"startFrame":100,"length":90,"text":"Hello"}"#;
+        let request = serde_json::from_str::<CreateTextObjectRequest>(json).unwrap();
+        assert_eq!(request.text, "Hello");
+        assert_eq!(request.length, 90);
+        assert_eq!(serde_json::to_string(&request).unwrap(), json);
     }
 
     #[test]

@@ -273,3 +273,18 @@ Phase 3の最初の操作は、既存objectを1件だけ削除する
 
 成功時は`{"deleted": <削除前snapshot>}`を返します。0件はnot found、複数件とscene
 不一致はconflictです。project保存、暗黙のUndo、複数object削除は行いません。
+
+## Phase 3単一text createの設計
+
+`POST /v1/scenes/current/objects/text` は、scene名、layer、start frame、length、textを
+受け取ります。UI生成textのaliasをWindowsで観測し、effect名と本文項目名がともに
+`テキスト`であることを確認しました。
+
+空objectを作ってから本文設定に失敗する部分適用を避けるため、内部で最小aliasを生成し、
+`create_object_from_alias`を1回だけ呼びます。aliasの行境界を壊さないよう、最初の契約は
+CR、LF、NULを含むtextを拒否します。length 0、frame overflow、同一layerの既存objectと
+重なる範囲もmutation前に拒否します。
+
+作成後は同じedit section内でlayer、frame範囲、nameと本文を読み返し、すべて一致した
+場合だけ`{"object": <snapshot>, "text": <本文>}`を返します。object名変更、装飾、
+複数object生成は別mutationになるため、このendpointには含めません。

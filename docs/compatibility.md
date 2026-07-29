@@ -204,3 +204,9 @@ Phase 3の単一object deleteも同じ環境と正規ビルド成果物で確認
 `object_not_found`の404となりました。UI Undo 1回で元のlayer 0、frame 142から222へ
 復元しました。検証中に既知の一過性Winsock 10053を1回観測し、再試行後に上記の
 API結果を確認しています。検証後はAviUtl2を終了し、processが残っていません。
+
+単一text createでは、UI生成objectから一時診断buildで確認したeffect・項目名を使い、
+最小aliasを内部生成する実装を検証しました。正規ビルドの`create-text` CLIで
+layer 1、frame 100から189に本文`Hello`のobjectを作成し、responseで同じ本文を
+read-backできました。同じ位置への再作成はmutation前に`state_conflict`の409となり、
+UI Undo 1回でobject一覧が空へ戻りました。検証後はAviUtl2を終了しました。

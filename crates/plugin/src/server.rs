@@ -11,9 +11,9 @@ use std::{
 };
 
 use aviutl2_ai_agent_protocol::{
-    ApiError, CurrentObjects, CurrentScene, CurrentTimeline, DeleteObjectRequest,
-    DeleteObjectResponse, ErrorCode, Health, HealthStatus, MoveObjectRequest, MoveObjectResponse,
-    Status,
+    ApiError, CreateTextObjectRequest, CreateTextObjectResponse, CurrentObjects, CurrentScene,
+    CurrentTimeline, DeleteObjectRequest, DeleteObjectResponse, ErrorCode, Health, HealthStatus,
+    MoveObjectRequest, MoveObjectResponse, Status,
 };
 #[cfg(windows)]
 use aviutl2_ai_agent_protocol::{FrameRate, TimelineObject};
@@ -48,6 +48,9 @@ type ObjectMover =
     dyn Fn(&MoveObjectRequest) -> Result<MoveObjectResponse, MutationError> + Send + Sync;
 type ObjectDeleter =
     dyn Fn(&DeleteObjectRequest) -> Result<DeleteObjectResponse, MutationError> + Send + Sync;
+type TextObjectCreator = dyn Fn(&CreateTextObjectRequest) -> Result<CreateTextObjectResponse, MutationError>
+    + Send
+    + Sync;
 
 struct ServerParts {
     scene_reader: Arc<SceneReader>,
@@ -55,6 +58,7 @@ struct ServerParts {
     objects_reader: Arc<ObjectsReader>,
     object_mover: Arc<ObjectMover>,
     object_deleter: Arc<ObjectDeleter>,
+    text_object_creator: Arc<TextObjectCreator>,
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -88,6 +92,7 @@ struct ServerContext {
     objects_reader: Arc<ObjectsReader>,
     object_mover: Arc<ObjectMover>,
     object_deleter: Arc<ObjectDeleter>,
+    text_object_creator: Arc<TextObjectCreator>,
 }
 
 /// Loopback HTTP server whose threads and SDK access gate are owned here.
@@ -117,6 +122,7 @@ impl ApiServer {
                 objects_reader: platform_objects_reader(),
                 object_mover: platform_object_mover(),
                 object_deleter: platform_object_deleter(),
+                text_object_creator: platform_text_object_creator(),
             },
             |index, listener, shutting_down, context| {
                 thread::Builder::new()
@@ -166,6 +172,7 @@ impl ApiServer {
             objects_reader: parts.objects_reader,
             object_mover: parts.object_mover,
             object_deleter: parts.object_deleter,
+            text_object_creator: parts.text_object_creator,
         });
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
@@ -496,6 +503,19 @@ fn route(request: &HttpRequest, context: &ServerContext) -> HttpResponse {
                 delete_object(&request.body, context)
             }
         }
+        (Some("POST"), Some("/v1/scenes/current/objects/text")) => {
+            if !has_json_content_type(&request.head) {
+                api_error(
+                    "400 Bad Request",
+                    ErrorCode::InvalidRequest,
+                    "Content-Type must be application/json",
+                    false,
+                    None,
+                )
+            } else {
+                create_text_object(&request.body, context)
+            }
+        }
         (Some("GET"), _) => api_error(
             "404 Not Found",
             ErrorCode::RouteNotFound,
@@ -665,6 +685,77 @@ fn delete_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             "500 Internal Server Error",
             ErrorCode::InternalError,
             "Delete result could not be confirmed",
+            false,
+            None,
+        ),
+        Err(EditorError::Busy) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorBusy,
+            "EditorGate is busy",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Err(EditorError::Unavailable) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+    }
+}
+
+fn create_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
+    let request = match serde_json::from_slice::<CreateTextObjectRequest>(body) {
+        Ok(request)
+            if request.length > 0
+                && !request
+                    .text
+                    .chars()
+                    .any(|character| matches!(character, '\r' | '\n' | '\0')) =>
+        {
+            request
+        }
+        _ => {
+            return api_error(
+                "400 Bad Request",
+                ErrorCode::InvalidRequest,
+                "Invalid text object request",
+                false,
+                None,
+            );
+        }
+    };
+    match context
+        .editor_gate
+        .read(|| Ok((context.text_object_creator)(&request)))
+    {
+        Ok(Ok(response)) => json_response(&response),
+        Ok(Err(MutationError::SceneConflict)) => api_error(
+            "409 Conflict",
+            ErrorCode::StateConflict,
+            "Current scene does not match the request",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::Validation(_))) => api_error(
+            "409 Conflict",
+            ErrorCode::StateConflict,
+            "Text object destination conflicts with current state",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::Unavailable)) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
+            "500 Internal Server Error",
+            ErrorCode::InternalError,
+            "Text object result could not be confirmed",
             false,
             None,
         ),
@@ -901,6 +992,77 @@ fn platform_object_deleter() -> Arc<ObjectDeleter> {
 }
 
 #[cfg(windows)]
+fn platform_text_object_creator() -> Arc<TextObjectCreator> {
+    Arc::new(|request| {
+        if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+            return Err(MutationError::Unavailable);
+        }
+        let layer_max = crate::windows_plugin::EDIT_HANDLE.get_edit_info().layer_max;
+        crate::windows_plugin::EDIT_HANDLE
+            .call_edit_section(|section| {
+                let scene_name = section
+                    .get_scene_name()
+                    .map_err(|_| MutationError::Unavailable)?;
+                if scene_name != request.expected_scene_name {
+                    return Err(MutationError::SceneConflict);
+                }
+                let mut objects = Vec::new();
+                for layer in 0..=layer_max {
+                    for (position, handle) in section.objects_in_layer(layer) {
+                        objects.push(TimelineObject {
+                            layer: position.layer,
+                            start_frame: position.start,
+                            end_frame: position.end,
+                            name: section.get_object_name(handle).ok().flatten(),
+                        });
+                    }
+                }
+                let expected = crate::mutation::validate_create(
+                    &objects,
+                    request.layer,
+                    request.start_frame,
+                    request.length,
+                )
+                .map_err(MutationError::Validation)?;
+                let alias = format!(
+                    "[Object]\r\n[Object.0]\r\neffect.name=テキスト\r\nテキスト={}\r\n[Object.1]\r\neffect.name=標準描画\r\n",
+                    request.text
+                );
+                let handle = section
+                    .create_object_from_alias(
+                        &alias,
+                        request.layer,
+                        request.start_frame,
+                        request.length,
+                    )
+                    .map_err(|_| MutationError::ApplyFailed)?;
+                let position = section
+                    .get_object_layer_frame(handle)
+                    .map_err(|_| MutationError::VerifyFailed)?;
+                let actual = TimelineObject {
+                    layer: position.layer,
+                    start_frame: position.start,
+                    end_frame: position.end,
+                    name: section
+                        .get_object_name(handle)
+                        .map_err(|_| MutationError::VerifyFailed)?,
+                };
+                let text = section
+                    .get_object_effect_item(handle, "テキスト", 0, "テキスト")
+                    .map_err(|_| MutationError::VerifyFailed)?;
+                if actual != expected || text != request.text {
+                    return Err(MutationError::VerifyFailed);
+                }
+                Ok(CreateTextObjectResponse {
+                    object: actual,
+                    text,
+                })
+            })
+            .map_err(|_| MutationError::Unavailable)?
+    })
+}
+
+#[cfg(windows)]
 fn write_object_observation(
     section: &aviutl2::generic::ReadSection,
     raw_scene_id: i32,
@@ -958,6 +1120,11 @@ fn platform_object_mover() -> Arc<ObjectMover> {
 
 #[cfg(not(windows))]
 fn platform_object_deleter() -> Arc<ObjectDeleter> {
+    Arc::new(|_| Err(MutationError::Unavailable))
+}
+
+#[cfg(not(windows))]
+fn platform_text_object_creator() -> Arc<TextObjectCreator> {
     Arc::new(|_| Err(MutationError::Unavailable))
 }
 
@@ -1048,6 +1215,7 @@ mod tests {
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_mover: Arc::new(mover),
                 object_deleter: Arc::new(deleter),
+                text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             |_, listener, shutting_down, context| {
                 thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
@@ -1093,6 +1261,34 @@ mod tests {
             address,
             &format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: keep-alive\r\n\r\n"),
         )
+    }
+
+    fn start_with_text_creator(
+        creator: impl Fn(
+            &aviutl2_ai_agent_protocol::CreateTextObjectRequest,
+        ) -> Result<
+            aviutl2_ai_agent_protocol::CreateTextObjectResponse,
+            super::MutationError,
+        > + Send
+        + Sync
+        + 'static,
+    ) -> ApiServer {
+        ApiServer::start_with_parts(
+            "127.0.0.1:0",
+            4,
+            ServerParts {
+                scene_reader: Arc::new(|| Ok(scene("Root", 0))),
+                timeline_reader: Arc::new(|| Ok(timeline())),
+                objects_reader: Arc::new(|| Ok(objects())),
+                object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                text_object_creator: Arc::new(creator),
+            },
+            |_, listener, shutting_down, context| {
+                thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
+            },
+        )
+        .unwrap()
     }
 
     fn raw_request(address: std::net::SocketAddr, request: &str) -> String {
@@ -1263,6 +1459,49 @@ mod tests {
     }
 
     #[test]
+    fn create_text_endpoint_returns_verified_object_and_text() {
+        let server = start_with_text_creator(|request| {
+            Ok(aviutl2_ai_agent_protocol::CreateTextObjectResponse {
+                object: aviutl2_ai_agent_protocol::TimelineObject {
+                    layer: request.layer,
+                    start_frame: request.start_frame,
+                    end_frame: request.start_frame + request.length - 1,
+                    name: None,
+                },
+                text: request.text.clone(),
+            })
+        });
+        let request =
+            r#"{"expectedSceneName":"Root","layer":1,"startFrame":100,"length":30,"text":"Hello"}"#;
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/text",
+            request,
+        );
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        let created: aviutl2_ai_agent_protocol::CreateTextObjectResponse =
+            serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(created.object.end_frame, 129);
+        assert_eq!(created.text, "Hello");
+    }
+
+    #[test]
+    fn create_text_endpoint_rejects_zero_length_and_line_breaks() {
+        let server = start_with_text_creator(|_| panic!("invalid request reached creator"));
+        for request in [
+            r#"{"expectedSceneName":"Root","layer":1,"startFrame":100,"length":0,"text":"Hello"}"#,
+            "{\"expectedSceneName\":\"Root\",\"layer\":1,\"startFrame\":100,\"length\":30,\"text\":\"first\\nsecond\"}",
+        ] {
+            let response = post(
+                server.local_addr(),
+                "/v1/scenes/current/objects/text",
+                request,
+            );
+            assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+        }
+    }
+
+    #[test]
     fn move_endpoint_supports_expect_continue() {
         let server = start_with_mover(
             || Ok(scene("Root", 0)),
@@ -1368,6 +1607,7 @@ mod tests {
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             {
                 let accepted = Arc::clone(&accepted);
@@ -1438,6 +1678,7 @@ mod tests {
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             |index, listener, shutting_down, context| {
                 if index == 2 {

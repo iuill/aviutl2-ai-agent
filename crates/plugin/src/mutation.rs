@@ -69,6 +69,33 @@ pub(crate) fn validate_move(
     ))
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn validate_create(
+    objects: &[TimelineObject],
+    layer: usize,
+    start_frame: usize,
+    length: usize,
+) -> Result<TimelineObject, MoveValidationError> {
+    let end_frame = start_frame
+        .checked_add(
+            length
+                .checked_sub(1)
+                .ok_or(MoveValidationError::FrameOverflow)?,
+        )
+        .ok_or(MoveValidationError::FrameOverflow)?;
+    if objects.iter().any(|object| {
+        object.layer == layer && start_frame <= object.end_frame && object.start_frame <= end_frame
+    }) {
+        return Err(MoveValidationError::DestinationOccupied);
+    }
+    Ok(TimelineObject {
+        layer,
+        start_frame,
+        end_frame,
+        name: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,6 +183,27 @@ mod tests {
                 }
             ),
             Err(MoveValidationError::FrameOverflow)
+        );
+    }
+
+    #[test]
+    fn validates_create_range_and_collision() {
+        assert_eq!(
+            validate_create(&[], 1, 100, 30).unwrap(),
+            TimelineObject {
+                layer: 1,
+                start_frame: 100,
+                end_frame: 129,
+                name: None,
+            }
+        );
+        assert_eq!(
+            validate_create(&[], 1, 100, 0),
+            Err(MoveValidationError::FrameOverflow)
+        );
+        assert_eq!(
+            validate_create(&[object(1, 129, 150)], 1, 100, 30),
+            Err(MoveValidationError::DestinationOccupied)
         );
     }
 }
