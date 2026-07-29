@@ -29,7 +29,7 @@ runtime retryは複数instance対応と必要性を一緒に再設計します�
 
 ### 1B: current scene identity
 
-状態: **次に着手**
+状態: **調査中**
 
 `aviutl2` 0.41.0のgeneric APIと`aviutl2-sys`のPlugin SDK定義を調べた結果、
 current edit sectionには `scene_id: i32` とscene名がありますが、scene一覧を
@@ -37,15 +37,18 @@ current edit sectionには `scene_id: i32` とscene名がありますが、scene
 
 公開契約を決める前にWindows + AviUtl2で次を観測します。
 
-- Rootと追加sceneで `scene_id` がどう変わるか
-- scene切替後に元のsceneへ戻ると同じIDになるか
-- 同名sceneのIDが異なるか
-- project再読込と別project読込でIDが再利用されるか
-- scene削除後にIDが再利用されるか
+- [x] Rootと追加sceneで `scene_id` がどう変わるか
+- [x] scene切替後に元のsceneへ戻ると同じIDになるか
+- [ ] 同名sceneのIDが異なるか
+- [ ] project再読込と別project読込でIDが再利用されるか
+- [ ] scene削除後にIDが再利用されるか
 
 観測後、`GET /v1/scenes/current` に安全に公開できるidentityとmetadataを加算します。
 IDの寿命を実測できなければ公開せず、内部の観測値に留めます。scene一覧はSDKに
 列挙手段が追加されるか、別の安全な取得方法を実測できるまで保留します。
+2026-07-29の最初の観測では、同一process内で `Root=0`、`Scene1=1`、
+再選択した `Root=0` でした。残りの寿命・再利用条件が未確認のため、IDはまだ
+公開契約に含めません。
 
 ### 1C: current sceneのtimeline / object read
 

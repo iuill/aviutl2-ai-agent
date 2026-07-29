@@ -437,10 +437,28 @@ generic APIと`aviutl2-sys` Plugin SDK定義にはscene一覧を列挙する関�
 この静的調査だけではscene IDの寿命や再利用を保証できないため、次をWindowsで
 追加観測します。
 
-- [ ] Rootと追加sceneのIDを記録する
-- [ ] sceneを往復してIDの一致を記録する
+- [x] Rootと追加sceneのIDを記録する
+- [x] sceneを往復してIDの一致を記録する
 - [ ] 同名sceneを作成してIDを記録する
 - [ ] project再読込と別project読込後のIDを記録する
 - [ ] scene削除後にIDが再利用されるか記録する
 
 scene一覧APIは、安全な列挙方法が確認できるまで公開しません。
+
+2026-07-29にWindows Server 2025、AviUtl2 2.1.2、branch上のWindows native
+release buildを使い、対話sessionで追加観測しました。pluginが任意の観測ログへ
+current scene名とSDKのraw `scene_id` を記録する状態で、次の順に操作しました。
+
+1. 初期状態のRootをCLIで読む
+2. scene listからScene1を作成して選択し、CLIで読む
+3. Rootを再選択し、CLIで読む
+
+観測値は `Root=0`、`Scene1=1`、再選択した `Root=0` でした。同一process内の
+往復ではRootのIDが一致しました。scene listはUI AutomationのControl viewとRaw viewの
+どちらにも子要素として公開されず、scene作成dialogの確認buttonだけはFlaUIから
+Automation IDを使って操作できました。scene行の選択はこの観測環境の座標に依存する
+実験用操作であり、再利用可能なruntime smokeには含めません。
+
+この結果だけではprocessやprojectをまたぐIDの寿命、削除後の再利用、同名sceneの
+識別を保証できません。従ってraw `scene_id` は公開responseへ追加せず、残りの観測が
+終わるまで内部の診断値に留めます。

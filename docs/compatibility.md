@@ -44,6 +44,22 @@ workflowは次を実行しました。
 この観測は上記runの環境と状態に限られます。Windows 11でのPhase 1成果物、
 別のproject状態は未確認です。
 
+## 2026-07-29 current scene identity追加観測
+
+Windows Server 2025とAviUtl2 2.1.2の対話sessionで、branch上のWindows native
+release buildを使ってcurrent sceneを切り替えました。初期Root、追加したScene1、
+Rootへの再切替を順にCLIで読み、SDKから得たraw scene IDを診断ログへ記録しました。
+
+- 初期RootはID 0だった
+- Scene1を選択するとID 1だった
+- Rootへ戻ると再びID 0だった
+- scene作成dialogの確認buttonはFlaUIで操作できた
+- scene listの行はUI Automation treeに公開されず、選択操作の汎用的な自動化は
+  確立できなかった
+
+この観測は同一process内の往復に限られます。project再読込、別project、同名scene、
+scene削除後のID再利用は未確認であり、IDは公開APIに含めていません。
+
 ## 2026-07-28 port 7890競合時の観測
 
 最初に、port 7890を先に占有し、plugin初期化からbind errorを返す実装を
