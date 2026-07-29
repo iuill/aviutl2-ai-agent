@@ -214,3 +214,26 @@ Phase 2の設計はv0.4の `inspect → validate → apply → verify` と、pro
 scene、revision、対象を明示するwrite規律を出発点にします。
 
 Draft v0.4は履歴資料 [`design-draft-v0.4.md`](design-draft-v0.4.md) として保持します。
+
+## Phase 2最小moveの設計
+
+Windows実測により、非event worker threadからedit sectionを呼べる一方、複数mutationの
+途中失敗は自動rollbackされないことを確認しました。またraw object handleはUndo復元で
+維持され、新規再作成では変わったため、公開identityには使いません。
+
+最初のwriteは既存objectのmoveだけを、1 request 1 mutationで実装します。requestは
+current scene名、対象の完全なsnapshot、移動先layerとstart frameを持ちます。処理全体を
+1回のEditorGate取得と1回のedit section内で次の順に実行します。
+
+1. current scene名がrequestの期待値と一致するか確認する
+2. layer、start、end、nameが完全一致するobjectを列挙する
+3. 一致が1件だけであることを確認する
+4. inclusiveな移動先範囲が他objectと重ならないことを確認する
+5. `move_object` を1回だけ呼ぶ
+6. 同じedit section内で移動後のlayerとframe範囲を再取得する
+7. 期待結果と一致した場合だけ成功responseを返す
+
+0件はnot found、複数件・scene不一致・snapshot変更・移動先競合はconflictとして
+mutation前に拒否します。frame計算overflowも拒否します。SDK error後のrollbackは
+行わず、verify失敗は結果不明として内部errorにします。Undo/Redo、project保存、
+複数operation、raw handle指定は公開しません。
