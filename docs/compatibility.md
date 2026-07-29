@@ -194,3 +194,6 @@ dialog、button名、Automation ID、classが一致する唯一の要素へInvok
 pluginはこの場合だけ本文待機を2秒へ延長しています。curlと`Invoke-RestMethod`の
 両方でmove結果を受信できました。検証後はobjectを元位置へ戻し、AviUtl2を終了して
 processが残っていないことを確認しました。
+
+正規ビルドの`aviutl2-agent.exe move-object`でも同じobjectをlayer 2へ移動し、
+返された完全なsnapshotを使って元位置へ戻せることを確認しました。
