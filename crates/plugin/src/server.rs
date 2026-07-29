@@ -1,7 +1,7 @@
 use std::{
     fs::OpenOptions,
     io::{Read, Write},
-    net::{Shutdown, SocketAddr, TcpListener, TcpStream},
+    net::{SocketAddr, TcpListener, TcpStream},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -321,7 +321,6 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                             None,
                         );
                         write_response(stream, &response);
-                        finish_rejected_request(stream);
                         return None;
                     }
                     let mut body = request[head_end..].to_vec();
@@ -358,18 +357,6 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
         }
     }
     None
-}
-
-fn finish_rejected_request(stream: &mut TcpStream) {
-    let _ = stream.shutdown(Shutdown::Write);
-    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
-    let mut discarded = [0_u8; 512];
-    loop {
-        match stream.read(&mut discarded) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
-    }
 }
 
 fn expects_continue(head: &str) -> bool {
@@ -1730,9 +1717,30 @@ mod tests {
     fn raw_request(address: std::net::SocketAddr, request: &str) -> String {
         let mut stream = TcpStream::connect(address).unwrap();
         stream.write_all(request.as_bytes()).unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
-        response
+        read_complete_http_response(&mut stream)
+    }
+
+    fn read_complete_http_response(stream: &mut TcpStream) -> String {
+        let mut response = Vec::new();
+        let mut chunk = [0_u8; 512];
+        loop {
+            let count = stream.read(&mut chunk).unwrap();
+            assert_ne!(count, 0, "connection closed before the response completed");
+            response.extend_from_slice(&chunk[..count]);
+            let Some(head_end) = response
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+                .map(|position| position + 4)
+            else {
+                continue;
+            };
+            let head = std::str::from_utf8(&response[..head_end]).unwrap();
+            let content_length = super::parse_content_length(head).unwrap();
+            if response.len() >= head_end + content_length {
+                response.truncate(head_end + content_length);
+                return String::from_utf8(response).unwrap();
+            }
+        }
     }
 
     fn post(address: std::net::SocketAddr, path: &str, body: &str) -> String {
@@ -2011,8 +2019,7 @@ mod tests {
         stream.read_exact(&mut interim).unwrap();
         assert_eq!(&interim, b"HTTP/1.1 100 Continue\r\n\r\n");
         stream.write_all(body_text.as_bytes()).unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
+        let response = read_complete_http_response(&mut stream);
         assert!(response.starts_with("HTTP/1.1 409 Conflict\r\n"));
     }
 
@@ -2027,8 +2034,7 @@ mod tests {
             super::MAX_REQUEST_BODY + 1
         )
         .unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
+        let response = read_complete_http_response(&mut stream);
         assert!(response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
         assert!(!response.contains("100 Continue"));
         let error: ApiError = serde_json::from_str(body(&response)).unwrap();
