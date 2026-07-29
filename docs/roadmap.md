@@ -1,6 +1,6 @@
 # ロードマップ
 
-この文書はPhase 1からPhase 3までの実施順序を管理します。公開APIの契約と安全境界は
+この文書はPhase 1以降の実施順序を管理します。公開APIの契約と安全境界は
 [`design.md`](design.md)、SDKの観測事実と未検証項目は
 [`phase0.md`](phase0.md)を正とします。
 
@@ -107,22 +107,40 @@ stdio transportは公式Rust SDKを使い、MCP `2026-07-28`とlegacy lifecycle�
 Phase 2の契約は調査結果を反映した新しい設計版で確定します。v0.4の案をそのまま仕様とは
 みなしません。
 
-## Phase 3: object生成と複数operation
+## Phase 3: 単一objectの生成・複製・削除
 
-状態: **単一delete、text/media create、duplicateを実装・Windows実機検証済み**
+状態: **実装・Windows実機検証済み**
 
-Phase 2の既存object更新とUndo/部分失敗の観測結果を前提に、次を段階的に追加します。
+Phase 2の安全境界を維持したまま、1要求1operationで次を提供します。
 
-- create / duplicate / delete
-- text / image / audioの代表的な生成
-- effectの追加 / 更新 / 削除
+- 単一objectのdeleteとduplicate
+- 検証済みの最小aliasを使うplain text preset
+- caller管理pathからのimage / audio生成
+- 各mutationの同一edit section内でのread-back
+- title / subtitleを組み立てるエージェント向けの再利用可能な例
+
+text APIは、Windowsでeffect名と本文項目名を実測した最小構成だけをpresetとして
+公開します。SDK固有のeffect名、項目schema、内部aliasはHTTP契約へ出しません。
+title / subtitle固有の装飾は、対応するaliasをWindowsで実測してからpresetへ追加します。
+未検証のstyleを保証するpresetは追加しません。
+
+title / subtitleの例は複数の単一操作を順に呼び、各responseまたはobject一覧を再取得して
+状態を確認します。途中まで適用された場合に自動rollbackできるとは保証しません。
+
+## Phase 4以降: 汎用effectと複数operation
+
+単一操作で実利用上の支障が確認された時点で、次を再評価します。
+
+- effectの追加 / 更新 / 削除とversion付きschema
 - client側の一時IDと作成結果の対応
 - 1 edit section内の複数operation
-- 途中失敗時の復旧手順
-- title / subtitleの再利用可能な例
+- batch途中失敗時の結果表現と復旧手順
+- 複数操作をまとめるUndo単位
 
-複数operationはoperation間で `EditorGate` を解放しません。原子性やrollbackをSDKの
-観測なしに保証せず、部分失敗が残る場合は契約上明示します。
+batchを導入する場合はoperation間で `EditorGate` を解放しません。原子性やrollbackを
+SDKの観測なしに保証せず、部分失敗が残る場合は契約上明示します。tool call回数、
+処理時間、操作間の競合、Undo単位のいずれかが単一操作では問題になることを、導入判断の
+根拠とします。
 
 ## 全Phaseで維持する境界
 

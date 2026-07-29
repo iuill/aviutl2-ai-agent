@@ -287,6 +287,10 @@ Phase 3の最初の操作は、既存objectを1件だけ削除する
 受け取ります。UI生成textのaliasをWindowsで観測し、effect名と本文項目名がともに
 `テキスト`であることを確認しました。
 
+このendpointは汎用effect APIではなく、検証済みのplain text presetです。SDK固有の
+effect名、項目schema、aliasは実装内部に閉じ込めます。titleやsubtitleなど別のpresetは、
+装飾を含むaliasとread-back方法を対象Windows環境で実測してから個別に追加します。
+
 空objectを作ってから本文設定に失敗する部分適用を避けるため、内部で最小aliasを生成し、
 `create_object_from_alias`を1回だけ呼びます。aliasの行境界を壊さないよう、最初の契約は
 CR、LF、NULを含むtextを拒否します。length 0、frame overflow、同一layerの既存objectと
@@ -319,3 +323,17 @@ rootを設けず、pathの選択責任はCodexなどのcallerが持ちます。p
 移動先範囲を検証してから`create_object_from_media_file`を1回だけ呼び、作成後の
 layerとframe範囲を同じedit section内で確認します。project保存や複数mediaの一括生成は
 行いません。
+
+## 複数operationと汎用effectの扱い
+
+Phase 3は1要求1operationを維持します。AIエージェントは各responseまたはobject一覧を
+確認しながら単一操作を順に実行します。途中まで適用された一連の操作をAPIが自動で
+rollbackするとは保証しません。
+
+1 edit section内の複数operation、client側一時ID、batchの部分失敗契約、複数操作の
+Undo単位はPhase 4以降へ先送りします。tool call回数や処理時間、操作間の競合が実利用上
+問題になった時点で必要性を再評価します。
+
+任意のeffect名や項目schemaを受け取る汎用APIもPhase 4以降とします。追加する場合は
+SDK型やraw aliasをHTTPへ漏らさず、Windowsで観測したeffectごとのversion付き契約を
+先に定義します。
