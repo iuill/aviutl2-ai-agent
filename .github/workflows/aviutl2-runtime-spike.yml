@@ -14,7 +14,7 @@ jobs:
       AVIUTL2_URL: https://spring-fragrance.mints.ne.jp/aviutl/aviutl2_v2.1.2.zip
       AVIUTL2_SHA256: 9de5d6bd372cd2b671d50ba93645571bb4c260f694b62d306507ec9d17d70b33
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@1.88.0
 

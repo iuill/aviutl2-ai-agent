@@ -40,6 +40,13 @@ timeline、object、effect、font、frame render、event recorder、project epoc
 discoveryはこの最初のsliceに含めません。利用価値を確かめながら、必要なものを1種類ずつ
 追加します。
 
+最初のsliceの次に調べるread対象はcurrent scene identityです。`aviutl2` 0.41.0と
+Plugin SDK定義にはcurrent sceneのIDと名前がありますが、scene一覧の列挙APIは
+ありません。scene IDの切替、再利用、project再読込時の挙動をWindowsで観測し、
+安全に契約化できる範囲を決めます。その後はcurrent sceneを対象とするtimeline/object
+readを候補とし、current以外のsceneを推測で選択するAPIは公開しません。
+Phase 3までの実施順序は [`roadmap.md`](roadmap.md)で管理します。
+
 ## 実装境界
 
 - SDK呼出しはtransportから分離した単一の `EditorGate` で直列化する
@@ -56,8 +63,11 @@ discoveryはこの最初のsliceに含めません。利用価値を確かめな
 Phase 1の間は固定loopback port 7890と単一AviUtl2 instanceというPhase 0の制約を
 維持します。複数instanceや外部hostからの接続は対象外です。動的port、session
 discovery、認証は必要性が生じた時点で一緒に設計します。
-port 7890をbindできない場合はplugin初期化を失敗させます。listenerなしの縮退状態では
-起動しません。
+port 7890をbindできない場合、plugin情報に `local API unavailable` と理由を表示し、API
+serverなしの無効状態でplugin初期化を完了します。AviUtl2 2.1.2ではplugin初期化から
+errorを返した後のhost終了時にaccess violationを観測したため、host processの安全を
+優先します。無効状態はAPI requestを受け付けず、次回のAviUtl2起動時に再bindを
+試みます。
 
 ### 最初のレスポンス契約
 
@@ -137,8 +147,8 @@ Phase 1のHTTP serverはHost headerを必須とするHTTP/1.1 requestだけを�
 - `/phase0/read-section` が削除され、SDK経路が `EditorGate` に一本化されている
 - Linuxのunit test、正規cross-build、GitHub-hosted Windows runtime smokeが通る
 - AviUtl2の通常終了時にworker joinの回帰検査が通る
-- port 7890を先に占有した状態でもAviUtl2本体が起動を完了し、plugin初期化失敗を
-  利用者が認識できることをWindowsで実測し、hostの挙動を記録している
+- port 7890を先に占有した状態でもAviUtl2本体が起動・正常終了し、plugin情報から
+  API無効状態を利用者が認識できることをWindowsで実測し、hostの挙動を記録している
 - 長時間SDK呼出しを模した状態でも `/healthz` が応答する回帰testが通る
 - 次に追加するread対象の選定結果が `design.md` に記録されている
 
