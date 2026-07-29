@@ -1,4 +1,5 @@
 use std::{
+    fs::OpenOptions,
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     sync::{
@@ -6,7 +7,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use aviutl2_ai_agent_protocol::{ApiError, CurrentScene, ErrorCode, Health, HealthStatus, Status};
@@ -19,8 +20,15 @@ const ACCEPT_POLL: Duration = Duration::from_millis(5);
 const EDITOR_GATE_TIMEOUT: Duration = Duration::from_millis(100);
 const RETRY_AFTER_SECONDS: u64 = 1;
 const API_VERSION: &str = "v1";
+const SCENE_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_SCENE_OBSERVATION_LOG";
 
-type SceneReader = dyn Fn() -> Result<String, EditorError> + Send + Sync;
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SceneRead {
+    name: String,
+    raw_scene_id: Option<i32>,
+}
+
+type SceneReader = dyn Fn() -> Result<SceneRead, EditorError> + Send + Sync;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
@@ -282,7 +290,10 @@ fn route(request: &str, context: &ServerContext) -> HttpResponse {
         }),
         Some("/v1/status") => json_response(&context.status),
         Some("/v1/scenes/current") => match context.editor_gate.read(|| (context.scene_reader)()) {
-            Ok(name) => json_response(&CurrentScene { name }),
+            Ok(scene) => {
+                write_scene_observation(&scene);
+                json_response(&CurrentScene { name: scene.name })
+            }
             Err(EditorError::Busy) => api_error(
                 "503 Service Unavailable",
                 ErrorCode::EditorBusy,
@@ -345,14 +356,39 @@ fn api_error(
     }
 }
 
+fn write_scene_observation(scene: &SceneRead) {
+    let Ok(path) = std::env::var(SCENE_OBSERVATION_LOG_ENV) else {
+        return;
+    };
+    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let timestamp_millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let record = serde_json::json!({
+        "timestampMillis": timestamp_millis,
+        "name": scene.name,
+        "rawSceneId": scene.raw_scene_id,
+    });
+    let _ = writeln!(file, "{record}");
+}
+
 #[cfg(windows)]
 fn platform_scene_reader() -> Arc<SceneReader> {
     Arc::new(|| {
         if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
             return Err(EditorError::Unavailable);
         }
+        let raw_scene_id = crate::windows_plugin::EDIT_HANDLE.get_edit_info().scene_id;
         crate::windows_plugin::EDIT_HANDLE
-            .call_read_section(|section| section.get_scene_name())
+            .call_read_section(|section| {
+                section.get_scene_name().map(|name| SceneRead {
+                    name,
+                    raw_scene_id: Some(raw_scene_id),
+                })
+            })
             .ok()
             .and_then(Result::ok)
             .ok_or(EditorError::Unavailable)
@@ -385,7 +421,7 @@ mod tests {
     use super::{ACCEPT_POLL, ApiServer, EditorError, ServerError, handle_connection, worker_loop};
 
     fn start(
-        reader: impl Fn() -> Result<String, EditorError> + Send + Sync + 'static,
+        reader: impl Fn() -> Result<super::SceneRead, EditorError> + Send + Sync + 'static,
     ) -> ApiServer {
         ApiServer::start_with_parts(
             "127.0.0.1:0",
@@ -396,6 +432,13 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    fn scene(name: &str, raw_scene_id: i32) -> super::SceneRead {
+        super::SceneRead {
+            name: name.to_owned(),
+            raw_scene_id: Some(raw_scene_id),
+        }
     }
 
     fn request(address: std::net::SocketAddr, path: &str) -> String {
@@ -419,7 +462,7 @@ mod tests {
 
     #[test]
     fn health_status_and_not_found_use_json_and_close_connection() {
-        let server = start(|| Ok("Root".into()));
+        let server = start(|| Ok(scene("Root", 0)));
 
         let response = request(server.local_addr(), "/healthz");
         assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
@@ -441,7 +484,7 @@ mod tests {
 
     #[test]
     fn current_scene_uses_reader() {
-        let server = start(|| Ok("Scene 1".into()));
+        let server = start(|| Ok(scene("Scene 1", 7)));
         let response = request(server.local_addr(), "/v1/scenes/current");
         let scene: CurrentScene = serde_json::from_str(body(&response)).unwrap();
         assert_eq!(scene.name, "Scene 1");
@@ -449,7 +492,7 @@ mod tests {
 
     #[test]
     fn rejects_wrong_host_origin_and_invalid_method() {
-        let server = start(|| Ok("Root".into()));
+        let server = start(|| Ok(scene("Root", 0)));
         let address = server.local_addr();
         for request_head in [
             "GET /healthz HTTP/1.1\r\nHost: attacker.example\r\n\r\n".to_owned(),
@@ -473,7 +516,7 @@ mod tests {
         let server = start(move || {
             entered_tx.send(()).unwrap();
             release_rx.lock().unwrap().recv().unwrap();
-            Ok("Root".into())
+            Ok(scene("Root", 0))
         });
         let address = server.local_addr();
         let holder = thread::spawn(move || request(address, "/v1/scenes/current"));
@@ -504,7 +547,7 @@ mod tests {
         let server = start(move || {
             entered_tx.send(()).unwrap();
             release_rx.lock().unwrap().recv().unwrap();
-            Ok("Root".into())
+            Ok(scene("Root", 0))
         });
         let address = server.local_addr();
         let holder = thread::spawn(move || request(address, "/v1/scenes/current"));
@@ -523,7 +566,7 @@ mod tests {
     fn drop_joins_workers_and_releases_the_port() {
         let accepted = Arc::new(AtomicBool::new(false));
         let mut server =
-            ApiServer::start_with_parts("127.0.0.1:0", 1, Arc::new(|| Ok("Root".into())), {
+            ApiServer::start_with_parts("127.0.0.1:0", 1, Arc::new(|| Ok(scene("Root", 0))), {
                 let accepted = Arc::clone(&accepted);
                 move |_, listener, shutting_down, context| {
                     let accepted = Arc::clone(&accepted);
@@ -585,7 +628,7 @@ mod tests {
         let result = ApiServer::start_with_parts(
             &address.to_string(),
             4,
-            Arc::new(|| Ok("Root".into())),
+            Arc::new(|| Ok(scene("Root", 0))),
             |index, listener, shutting_down, context| {
                 if index == 2 {
                     return Err(std::io::Error::other("injected spawn failure"));
