@@ -197,3 +197,10 @@ processが残っていないことを確認しました。
 
 正規ビルドの`aviutl2-agent.exe move-object`でも同じobjectをlayer 2へ移動し、
 返された完全なsnapshotを使って元位置へ戻せることを確認しました。
+
+Phase 3の単一object deleteも同じ環境と正規ビルド成果物で確認しました。FlaUIで
+作成したtext objectの完全なsnapshotを`aviutl2-agent.exe delete-object`へ渡すと、
+削除前snapshotが返り、object一覧は空になりました。同じsnapshotの再送は
+`object_not_found`の404となりました。UI Undo 1回で元のlayer 0、frame 142から222へ
+復元しました。検証中に既知の一過性Winsock 10053を1回観測し、再試行後に上記の
+API結果を確認しています。検証後はAviUtl2を終了し、processが残っていません。

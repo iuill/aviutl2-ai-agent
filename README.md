@@ -54,6 +54,16 @@ dist\aviutl2-agent.exe move-object `
 
 nameが`null`のobjectでは`--name`を省略します。APIはprojectを保存せず、moveは
 AviUtl2のUndo対象になります。
+
+単一objectの削除も完全なsnapshotを指定します。
+
+```powershell
+dist\aviutl2-agent.exe delete-object `
+  --expected-scene-name Root `
+  --layer 0 --start-frame 10 --end-frame 39 --name Title
+```
+
+削除もAviUtl2のUndo対象であり、CLIはprojectを保存しません。
 6. AviUtl2 を終了して再起動し、手順3を繰り返します。再起動後も成功すれば、
    プロセス終了後にポート7890を再利用できることを確認できます。ただし、この
    手順だけでは `UninitializePlugin` 内で全workerのjoinが完了したことまでは

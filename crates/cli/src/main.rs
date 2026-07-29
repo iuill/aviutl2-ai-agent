@@ -2,8 +2,9 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use aviutl2_ai_agent_protocol::{
-    ApiError, CurrentObjects, CurrentScene, CurrentTimeline, ErrorCode, Health,
-    MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status, TimelineObject,
+    ApiError, CurrentObjects, CurrentScene, CurrentTimeline, DeleteObjectRequest,
+    DeleteObjectResponse, ErrorCode, Health, MoveObjectDestination, MoveObjectRequest,
+    MoveObjectResponse, Status, TimelineObject,
 };
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
@@ -46,6 +47,19 @@ enum Command {
         destination_layer: usize,
         #[arg(long)]
         destination_start_frame: usize,
+    },
+    /// Delete one object identified by its complete current snapshot.
+    DeleteObject {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        layer: usize,
+        #[arg(long)]
+        start_frame: usize,
+        #[arg(long)]
+        end_frame: usize,
+        #[arg(long)]
+        name: Option<String>,
     },
 }
 
@@ -107,6 +121,26 @@ fn run(args: Args) -> Result<(), ClientError> {
                 },
             },
             "move object",
+        )?),
+        Command::DeleteObject {
+            expected_scene_name,
+            layer,
+            start_frame,
+            end_frame,
+            name,
+        } => serde_json::to_string_pretty(&post::<DeleteObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/delete",
+            &DeleteObjectRequest {
+                expected_scene_name,
+                target: TimelineObject {
+                    layer,
+                    start_frame,
+                    end_frame,
+                    name,
+                },
+            },
+            "delete object",
         )?),
     }
     .context("failed to serialize response")

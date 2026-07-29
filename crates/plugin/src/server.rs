@@ -11,8 +11,9 @@ use std::{
 };
 
 use aviutl2_ai_agent_protocol::{
-    ApiError, CurrentObjects, CurrentScene, CurrentTimeline, ErrorCode, Health, HealthStatus,
-    MoveObjectRequest, MoveObjectResponse, Status,
+    ApiError, CurrentObjects, CurrentScene, CurrentTimeline, DeleteObjectRequest,
+    DeleteObjectResponse, ErrorCode, Health, HealthStatus, MoveObjectRequest, MoveObjectResponse,
+    Status,
 };
 #[cfg(windows)]
 use aviutl2_ai_agent_protocol::{FrameRate, TimelineObject};
@@ -44,11 +45,21 @@ type SceneReader = dyn Fn() -> Result<SceneRead, EditorError> + Send + Sync;
 type TimelineReader = dyn Fn() -> Result<CurrentTimeline, EditorError> + Send + Sync;
 type ObjectsReader = dyn Fn() -> Result<CurrentObjects, EditorError> + Send + Sync;
 type ObjectMover =
-    dyn Fn(&MoveObjectRequest) -> Result<MoveObjectResponse, MoveError> + Send + Sync;
+    dyn Fn(&MoveObjectRequest) -> Result<MoveObjectResponse, MutationError> + Send + Sync;
+type ObjectDeleter =
+    dyn Fn(&DeleteObjectRequest) -> Result<DeleteObjectResponse, MutationError> + Send + Sync;
+
+struct ServerParts {
+    scene_reader: Arc<SceneReader>,
+    timeline_reader: Arc<TimelineReader>,
+    objects_reader: Arc<ObjectsReader>,
+    object_mover: Arc<ObjectMover>,
+    object_deleter: Arc<ObjectDeleter>,
+}
 
 #[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MoveError {
+enum MutationError {
     Unavailable,
     SceneConflict,
     Validation(MoveValidationError),
@@ -76,6 +87,7 @@ struct ServerContext {
     timeline_reader: Arc<TimelineReader>,
     objects_reader: Arc<ObjectsReader>,
     object_mover: Arc<ObjectMover>,
+    object_deleter: Arc<ObjectDeleter>,
 }
 
 /// Loopback HTTP server whose threads and SDK access gate are owned here.
@@ -99,10 +111,13 @@ impl ApiServer {
         Self::start_with_parts(
             address,
             worker_count,
-            platform_scene_reader(),
-            platform_timeline_reader(),
-            platform_objects_reader(),
-            platform_object_mover(),
+            ServerParts {
+                scene_reader: platform_scene_reader(),
+                timeline_reader: platform_timeline_reader(),
+                objects_reader: platform_objects_reader(),
+                object_mover: platform_object_mover(),
+                object_deleter: platform_object_deleter(),
+            },
             |index, listener, shutting_down, context| {
                 thread::Builder::new()
                     .name(format!("aviutl2-ai-agent-http-{index}"))
@@ -114,10 +129,7 @@ impl ApiServer {
     fn start_with_parts<F>(
         address: &str,
         worker_count: usize,
-        scene_reader: Arc<SceneReader>,
-        timeline_reader: Arc<TimelineReader>,
-        objects_reader: Arc<ObjectsReader>,
-        object_mover: Arc<ObjectMover>,
+        parts: ServerParts,
         mut spawn_worker: F,
     ) -> Result<Self, ServerError>
     where
@@ -149,10 +161,11 @@ impl ApiServer {
             },
             expected_host: address.to_string(),
             editor_gate: EditorGate::new(EDITOR_GATE_TIMEOUT),
-            scene_reader,
-            timeline_reader,
-            objects_reader,
-            object_mover,
+            scene_reader: parts.scene_reader,
+            timeline_reader: parts.timeline_reader,
+            objects_reader: parts.objects_reader,
+            object_mover: parts.object_mover,
+            object_deleter: parts.object_deleter,
         });
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
@@ -470,6 +483,19 @@ fn route(request: &HttpRequest, context: &ServerContext) -> HttpResponse {
                 move_object(&request.body, context)
             }
         }
+        (Some("POST"), Some("/v1/scenes/current/objects/delete")) => {
+            if !has_json_content_type(&request.head) {
+                api_error(
+                    "400 Bad Request",
+                    ErrorCode::InvalidRequest,
+                    "Content-Type must be application/json",
+                    false,
+                    None,
+                )
+            } else {
+                delete_object(&request.body, context)
+            }
+        }
         (Some("GET"), _) => api_error(
             "404 Not Found",
             ErrorCode::RouteNotFound,
@@ -537,38 +563,108 @@ fn move_object(body: &[u8], context: &ServerContext) -> HttpResponse {
         .read(|| Ok((context.object_mover)(&request)))
     {
         Ok(Ok(response)) => json_response(&response),
-        Ok(Err(MoveError::SceneConflict)) => api_error(
+        Ok(Err(MutationError::SceneConflict)) => api_error(
             "409 Conflict",
             ErrorCode::StateConflict,
             "Current scene does not match the request",
             false,
             None,
         ),
-        Ok(Err(MoveError::Validation(MoveValidationError::TargetNotFound))) => api_error(
+        Ok(Err(MutationError::Validation(MoveValidationError::TargetNotFound))) => api_error(
             "404 Not Found",
             ErrorCode::ObjectNotFound,
             "Target object was not found",
             false,
             None,
         ),
-        Ok(Err(MoveError::Validation(_))) => api_error(
+        Ok(Err(MutationError::Validation(_))) => api_error(
             "409 Conflict",
             ErrorCode::StateConflict,
             "Object snapshot or destination conflicts with current state",
             false,
             None,
         ),
-        Ok(Err(MoveError::Unavailable)) => api_error(
+        Ok(Err(MutationError::Unavailable)) => api_error(
             "503 Service Unavailable",
             ErrorCode::EditorUnavailable,
             "AviUtl2 did not accept the edit",
             true,
             Some(RETRY_AFTER_SECONDS),
         ),
-        Ok(Err(MoveError::ApplyFailed | MoveError::VerifyFailed)) => api_error(
+        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
             "500 Internal Server Error",
             ErrorCode::InternalError,
             "Move result could not be confirmed",
+            false,
+            None,
+        ),
+        Err(EditorError::Busy) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorBusy,
+            "EditorGate is busy",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Err(EditorError::Unavailable) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+    }
+}
+
+fn delete_object(body: &[u8], context: &ServerContext) -> HttpResponse {
+    let request = match serde_json::from_slice::<DeleteObjectRequest>(body) {
+        Ok(request) => request,
+        Err(_) => {
+            return api_error(
+                "400 Bad Request",
+                ErrorCode::InvalidRequest,
+                "Invalid delete request",
+                false,
+                None,
+            );
+        }
+    };
+    match context
+        .editor_gate
+        .read(|| Ok((context.object_deleter)(&request)))
+    {
+        Ok(Ok(response)) => json_response(&response),
+        Ok(Err(MutationError::SceneConflict)) => api_error(
+            "409 Conflict",
+            ErrorCode::StateConflict,
+            "Current scene does not match the request",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::Validation(MoveValidationError::TargetNotFound))) => api_error(
+            "404 Not Found",
+            ErrorCode::ObjectNotFound,
+            "Target object was not found",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::Validation(_))) => api_error(
+            "409 Conflict",
+            ErrorCode::StateConflict,
+            "Object snapshot conflicts with current state",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::Unavailable)) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
+            "500 Internal Server Error",
+            ErrorCode::InternalError,
+            "Delete result could not be confirmed",
             false,
             None,
         ),
@@ -702,16 +798,16 @@ fn platform_objects_reader() -> Arc<ObjectsReader> {
 fn platform_object_mover() -> Arc<ObjectMover> {
     Arc::new(|request| {
         if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
-            return Err(MoveError::Unavailable);
+            return Err(MutationError::Unavailable);
         }
         let layer_max = crate::windows_plugin::EDIT_HANDLE.get_edit_info().layer_max;
         crate::windows_plugin::EDIT_HANDLE
             .call_edit_section(|section| {
                 let scene_name = section
                     .get_scene_name()
-                    .map_err(|_| MoveError::Unavailable)?;
+                    .map_err(|_| MutationError::Unavailable)?;
                 if scene_name != request.expected_scene_name {
-                    return Err(MoveError::SceneConflict);
+                    return Err(MutationError::SceneConflict);
                 }
 
                 let mut handles = Vec::new();
@@ -729,7 +825,7 @@ fn platform_object_mover() -> Arc<ObjectMover> {
                 }
                 let (target_index, expected) =
                     crate::mutation::validate_move(&objects, &request.target, &request.destination)
-                        .map_err(MoveError::Validation)?;
+                        .map_err(MutationError::Validation)?;
                 let handle = handles[target_index];
                 section
                     .move_object(
@@ -737,24 +833,70 @@ fn platform_object_mover() -> Arc<ObjectMover> {
                         request.destination.layer,
                         request.destination.start_frame,
                     )
-                    .map_err(|_| MoveError::ApplyFailed)?;
+                    .map_err(|_| MutationError::ApplyFailed)?;
                 let position = section
                     .get_object_layer_frame(handle)
-                    .map_err(|_| MoveError::VerifyFailed)?;
+                    .map_err(|_| MutationError::VerifyFailed)?;
                 let actual = TimelineObject {
                     layer: position.layer,
                     start_frame: position.start,
                     end_frame: position.end,
                     name: section
                         .get_object_name(handle)
-                        .map_err(|_| MoveError::VerifyFailed)?,
+                        .map_err(|_| MutationError::VerifyFailed)?,
                 };
                 if actual != expected {
-                    return Err(MoveError::VerifyFailed);
+                    return Err(MutationError::VerifyFailed);
                 }
                 Ok(MoveObjectResponse { object: actual })
             })
-            .map_err(|_| MoveError::Unavailable)?
+            .map_err(|_| MutationError::Unavailable)?
+    })
+}
+
+#[cfg(windows)]
+fn platform_object_deleter() -> Arc<ObjectDeleter> {
+    Arc::new(|request| {
+        if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+            return Err(MutationError::Unavailable);
+        }
+        let layer_max = crate::windows_plugin::EDIT_HANDLE.get_edit_info().layer_max;
+        crate::windows_plugin::EDIT_HANDLE
+            .call_edit_section(|section| {
+                let scene_name = section
+                    .get_scene_name()
+                    .map_err(|_| MutationError::Unavailable)?;
+                if scene_name != request.expected_scene_name {
+                    return Err(MutationError::SceneConflict);
+                }
+
+                let mut handles = Vec::new();
+                let mut objects = Vec::new();
+                for layer in 0..=layer_max {
+                    for (position, handle) in section.objects_in_layer(layer) {
+                        handles.push(handle);
+                        objects.push(TimelineObject {
+                            layer: position.layer,
+                            start_frame: position.start,
+                            end_frame: position.end,
+                            name: section.get_object_name(handle).ok().flatten(),
+                        });
+                    }
+                }
+                let target_index = crate::mutation::locate_exact(&objects, &request.target)
+                    .map_err(MutationError::Validation)?;
+                let handle = handles[target_index];
+                section
+                    .delete_object(handle)
+                    .map_err(|_| MutationError::ApplyFailed)?;
+                if section.object_exists(handle) {
+                    return Err(MutationError::VerifyFailed);
+                }
+                Ok(DeleteObjectResponse {
+                    deleted: request.target.clone(),
+                })
+            })
+            .map_err(|_| MutationError::Unavailable)?
     })
 }
 
@@ -811,7 +953,12 @@ fn platform_objects_reader() -> Arc<ObjectsReader> {
 
 #[cfg(not(windows))]
 fn platform_object_mover() -> Arc<ObjectMover> {
-    Arc::new(|_| Err(MoveError::Unavailable))
+    Arc::new(|_| Err(MutationError::Unavailable))
+}
+
+#[cfg(not(windows))]
+fn platform_object_deleter() -> Arc<ObjectDeleter> {
+    Arc::new(|_| Err(MutationError::Unavailable))
 }
 
 #[cfg(test)]
@@ -832,12 +979,19 @@ mod tests {
         ApiError, CurrentScene, ErrorCode, Health, HealthStatus, Status,
     };
 
-    use super::{ACCEPT_POLL, ApiServer, EditorError, ServerError, handle_connection, worker_loop};
+    use super::{
+        ACCEPT_POLL, ApiServer, EditorError, ServerError, ServerParts, handle_connection,
+        worker_loop,
+    };
 
     fn start(
         reader: impl Fn() -> Result<super::SceneRead, EditorError> + Send + Sync + 'static,
     ) -> ApiServer {
-        start_with_mover(reader, |_| Err(super::MoveError::Unavailable))
+        start_with_mutators(
+            reader,
+            |_| Err(super::MutationError::Unavailable),
+            |_| Err(super::MutationError::Unavailable),
+        )
     }
 
     fn start_with_mover(
@@ -845,18 +999,56 @@ mod tests {
         mover: impl Fn(
             &aviutl2_ai_agent_protocol::MoveObjectRequest,
         )
-            -> Result<aviutl2_ai_agent_protocol::MoveObjectResponse, super::MoveError>
+            -> Result<aviutl2_ai_agent_protocol::MoveObjectResponse, super::MutationError>
         + Send
+        + Sync
+        + 'static,
+    ) -> ApiServer {
+        start_with_mutators(reader, mover, |_| Err(super::MutationError::Unavailable))
+    }
+
+    fn start_with_deleter(
+        reader: impl Fn() -> Result<super::SceneRead, EditorError> + Send + Sync + 'static,
+        deleter: impl Fn(
+            &aviutl2_ai_agent_protocol::DeleteObjectRequest,
+        ) -> Result<
+            aviutl2_ai_agent_protocol::DeleteObjectResponse,
+            super::MutationError,
+        > + Send
+        + Sync
+        + 'static,
+    ) -> ApiServer {
+        start_with_mutators(reader, |_| Err(super::MutationError::Unavailable), deleter)
+    }
+
+    fn start_with_mutators(
+        reader: impl Fn() -> Result<super::SceneRead, EditorError> + Send + Sync + 'static,
+        mover: impl Fn(
+            &aviutl2_ai_agent_protocol::MoveObjectRequest,
+        )
+            -> Result<aviutl2_ai_agent_protocol::MoveObjectResponse, super::MutationError>
+        + Send
+        + Sync
+        + 'static,
+        deleter: impl Fn(
+            &aviutl2_ai_agent_protocol::DeleteObjectRequest,
+        ) -> Result<
+            aviutl2_ai_agent_protocol::DeleteObjectResponse,
+            super::MutationError,
+        > + Send
         + Sync
         + 'static,
     ) -> ApiServer {
         ApiServer::start_with_parts(
             "127.0.0.1:0",
             4,
-            Arc::new(reader),
-            Arc::new(|| Ok(timeline())),
-            Arc::new(|| Ok(objects())),
-            Arc::new(mover),
+            ServerParts {
+                scene_reader: Arc::new(reader),
+                timeline_reader: Arc::new(|| Ok(timeline())),
+                objects_reader: Arc::new(|| Ok(objects())),
+                object_mover: Arc::new(mover),
+                object_deleter: Arc::new(deleter),
+            },
             |_, listener, shutting_down, context| {
                 thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
             },
@@ -1009,7 +1201,7 @@ mod tests {
     fn move_endpoint_rejects_invalid_and_conflicting_requests() {
         let server = start_with_mover(
             || Ok(scene("Root", 0)),
-            |_| Err(super::MoveError::SceneConflict),
+            |_| Err(super::MutationError::SceneConflict),
         );
         let invalid = post(server.local_addr(), "/v1/scenes/current/objects/move", "{}");
         assert!(invalid.starts_with("HTTP/1.1 400 Bad Request\r\n"));
@@ -1027,10 +1219,54 @@ mod tests {
     }
 
     #[test]
+    fn delete_endpoint_returns_deleted_snapshot() {
+        let server = start_with_deleter(
+            || Ok(scene("Root", 0)),
+            |request| {
+                assert_eq!(request.expected_scene_name, "Root");
+                Ok(aviutl2_ai_agent_protocol::DeleteObjectResponse {
+                    deleted: request.target.clone(),
+                })
+            },
+        );
+        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}}"#;
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/delete",
+            request,
+        );
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        let deleted: aviutl2_ai_agent_protocol::DeleteObjectResponse =
+            serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(deleted.deleted, objects().objects[0]);
+    }
+
+    #[test]
+    fn delete_endpoint_maps_missing_target() {
+        let server = start_with_deleter(
+            || Ok(scene("Root", 0)),
+            |_| {
+                Err(super::MutationError::Validation(
+                    super::MoveValidationError::TargetNotFound,
+                ))
+            },
+        );
+        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}}"#;
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/delete",
+            request,
+        );
+        assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+        let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(error.code, ErrorCode::ObjectNotFound);
+    }
+
+    #[test]
     fn move_endpoint_supports_expect_continue() {
         let server = start_with_mover(
             || Ok(scene("Root", 0)),
-            |_| Err(super::MoveError::SceneConflict),
+            |_| Err(super::MutationError::SceneConflict),
         );
         let body_text = r#"{"expectedSceneName":"Other","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
         let mut stream = TcpStream::connect(server.local_addr()).unwrap();
@@ -1126,10 +1362,13 @@ mod tests {
         let mut server = ApiServer::start_with_parts(
             "127.0.0.1:0",
             1,
-            Arc::new(|| Ok(scene("Root", 0))),
-            Arc::new(|| Ok(timeline())),
-            Arc::new(|| Ok(objects())),
-            Arc::new(|_| Err(super::MoveError::Unavailable)),
+            ServerParts {
+                scene_reader: Arc::new(|| Ok(scene("Root", 0))),
+                timeline_reader: Arc::new(|| Ok(timeline())),
+                objects_reader: Arc::new(|| Ok(objects())),
+                object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
+            },
             {
                 let accepted = Arc::clone(&accepted);
                 move |_, listener, shutting_down, context| {
@@ -1193,10 +1432,13 @@ mod tests {
         let result = ApiServer::start_with_parts(
             &address.to_string(),
             4,
-            Arc::new(|| Ok(scene("Root", 0))),
-            Arc::new(|| Ok(timeline())),
-            Arc::new(|| Ok(objects())),
-            Arc::new(|_| Err(super::MoveError::Unavailable)),
+            ServerParts {
+                scene_reader: Arc::new(|| Ok(scene("Root", 0))),
+                timeline_reader: Arc::new(|| Ok(timeline())),
+                objects_reader: Arc::new(|| Ok(objects())),
+                object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
+            },
             |index, listener, shutting_down, context| {
                 if index == 2 {
                     return Err(std::io::Error::other("injected spawn failure"));

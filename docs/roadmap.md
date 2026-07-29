@@ -107,6 +107,8 @@ Phase 2の契約は調査結果を反映した新しい設計版で確定しま�
 
 ## Phase 3: object生成と複数operation
 
+状態: **単一object deleteを実装・Windows実機検証済み**
+
 Phase 2の既存object更新とUndo/部分失敗の観測結果を前提に、次を段階的に追加します。
 
 - create / duplicate / delete

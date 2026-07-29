@@ -259,3 +259,17 @@ Content-Type: application/json
 mutation前に拒否します。frame計算overflowも拒否します。SDK error後のrollbackは
 行わず、verify失敗は結果不明として内部errorにします。Undo/Redo、project保存、
 複数operation、raw handle指定は公開しません。
+
+## Phase 3単一deleteの設計
+
+Phase 3の最初の操作は、既存objectを1件だけ削除する
+`POST /v1/scenes/current/objects/delete` とします。requestはmoveと同じ
+`expectedSceneName` と完全な`target` snapshotを持ちます。
+
+1. 1回のEditorGate取得と1回のedit section内でscene名を確認する
+2. target snapshotに完全一致するobjectが1件だけであることを確認する
+3. `delete_object`を1回だけ呼ぶ
+4. 同じedit section内でhandleが存在しないことを確認する
+
+成功時は`{"deleted": <削除前snapshot>}`を返します。0件はnot found、複数件とscene
+不一致はconflictです。project保存、暗黙のUndo、複数object削除は行いません。

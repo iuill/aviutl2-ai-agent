@@ -10,11 +10,10 @@ pub(crate) enum MoveValidationError {
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) fn validate_move(
+pub(crate) fn locate_exact(
     objects: &[TimelineObject],
     target: &TimelineObject,
-    destination: &MoveObjectDestination,
-) -> Result<(usize, TimelineObject), MoveValidationError> {
+) -> Result<usize, MoveValidationError> {
     let matches = objects
         .iter()
         .enumerate()
@@ -28,6 +27,16 @@ pub(crate) fn validate_move(
             MoveValidationError::TargetAmbiguous
         });
     };
+    Ok(*target_index)
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn validate_move(
+    objects: &[TimelineObject],
+    target: &TimelineObject,
+    destination: &MoveObjectDestination,
+) -> Result<(usize, TimelineObject), MoveValidationError> {
+    let target_index = locate_exact(objects, target)?;
 
     let length = target
         .end_frame
@@ -40,7 +49,7 @@ pub(crate) fn validate_move(
         .ok_or(MoveValidationError::FrameOverflow)?;
 
     let overlaps = objects.iter().enumerate().any(|(index, object)| {
-        index != *target_index
+        index != target_index
             && object.layer == destination.layer
             && destination.start_frame <= object.end_frame
             && object.start_frame <= end_frame
@@ -50,7 +59,7 @@ pub(crate) fn validate_move(
     }
 
     Ok((
-        *target_index,
+        target_index,
         TimelineObject {
             layer: destination.layer,
             start_frame: destination.start_frame,
