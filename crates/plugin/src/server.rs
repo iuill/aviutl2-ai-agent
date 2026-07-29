@@ -1,7 +1,7 @@
 use std::{
     fs::OpenOptions,
     io::{Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
+    net::{Shutdown, SocketAddr, TcpListener, TcpStream},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -321,6 +321,7 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                             None,
                         );
                         write_response(stream, &response);
+                        finish_rejected_request(stream);
                         return None;
                     }
                     let mut body = request[head_end..].to_vec();
@@ -357,6 +358,18 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
         }
     }
     None
+}
+
+fn finish_rejected_request(stream: &mut TcpStream) {
+    let _ = stream.shutdown(Shutdown::Write);
+    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
+    let mut discarded = [0_u8; 512];
+    loop {
+        match stream.read(&mut discarded) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+    }
 }
 
 fn expects_continue(head: &str) -> bool {
