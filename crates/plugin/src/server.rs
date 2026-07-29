@@ -2028,13 +2028,12 @@ mod tests {
     fn oversized_expect_continue_is_rejected_before_interim_response() {
         let server = start(|| Ok(scene("Root", 0)));
         let mut stream = TcpStream::connect(server.local_addr()).unwrap();
-        write!(
-            stream,
+        let request_head = format!(
             "POST /v1/scenes/current/objects/move HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nExpect: 100-continue\r\n\r\n",
             server.local_addr(),
             super::MAX_REQUEST_BODY + 1
-        )
-        .unwrap();
+        );
+        stream.write_all(request_head.as_bytes()).unwrap();
         let response = read_complete_http_response(&mut stream);
         assert!(response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
         assert!(!response.contains("100 Continue"));
