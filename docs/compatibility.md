@@ -74,6 +74,13 @@ event診断を有効にしたbuildでは、起動時に `project_load` と `chan
 別threadから連続して通知されました。空のRootに対するobject走査は空配列を返しました。
 callback内ではSDK read/editを呼ばず、診断値の記録だけを行いました。
 
+FlaUIからtimeline context menuの `ExpandCollapse` と `Invoke` patternを使ってtext
+objectを作成し、Delete、Undo、Redo、新規再作成を行いました。作成・削除では
+`update_object` と `change_focus_object`、Undo・Redoでは `update_object` を観測しました。
+Undo復元時のraw handleは削除前と同じで、Redo後の新規再作成では異なるhandleでした。
+この結果は同一process内の1 objectだけに限られ、handleを公開identityとして保証する
+ものではありません。
+
 ## 2026-07-28 port 7890競合時の観測
 
 最初に、port 7890を先に占有し、plugin初期化からbind errorを返す実装を

@@ -306,8 +306,7 @@ dialogの種類は未記録です。タイムラインのドラッグ中、出�
 重複・欠落するか、削除済みhandleが再利用されるかを確認します。
 
 シーン切替後と別プロジェクト読込後にread sectionを呼び、現在のシーン名を
-読み取れることは確認しました。変更を通知するevent、callbackのthread、
-同期／非同期性、重複・欠落、handleの無効化・再利用は未検証です。
+読み取れることは確認しました。
 
 2026-07-29にWindows Server 2025とAviUtl2 2.1.2でevent診断ログを有効にし、
 空のRootで起動とport競合用の再起動を観測しました。各起動で `project_load` の直後に
@@ -316,8 +315,21 @@ event callbackではevent種別、時刻、threadだけを記録し、read/edit 
 呼びませんでした。
 
 同じbuildでcurrent timelineを読む際に、read section内でlayerごとのobjectを走査して
-所有データへコピーできました。空のRootではobject配列は空でした。object作成・更新・
-削除時のevent、handle再利用、重複・欠落は引き続き未検証です。
+所有データへコピーできました。空のRootではobject配列は空でした。
+
+続いてFlaUIからtimelineのcontext menuをUI Automation patternで展開し、text objectを
+作成しました。作成、削除、Undo、Redo、新規再作成の順に操作した結果は次のとおりです。
+
+- 作成時は `update_object`、`change_focus_object` の順に発火した
+- 削除時も `update_object`、`change_focus_object` の順に発火した
+- Undoによる復元とRedoによる再削除では `update_object` だけが発火した
+- これらのobject eventは同じevent threadから通知された
+- Undoで復元されたobjectのraw handleは削除前と同じだった
+- Redoで削除した後、同じ位置に新規作成したobjectのraw handleは以前と異なった
+
+これは1つのtext objectを同一process、同一sceneで操作した観測に限られます。
+handleの長期寿命、再利用されないこと、eventの一意性や欠落しないことは保証しません。
+raw handleは公開identityに使わず、request内でmetadataをコピーするためだけに使います。
 
 ## Q6 — Linux から Windows へのビルド
 
@@ -397,16 +409,20 @@ plugin_drop_completed
 
 ## Q7 — Undo API の公開
 
-状態：**繰延（Phase 2開始前）**
+状態：**調査中（Phase 2開始前）**
 
-- [ ] SDKのUndo/Redo APIを探す
+- [x] SDKのUndo/Redo APIを探す
 - [ ] 人間の操作をUndoする可能性があるか確認する
-- [ ] eventとrevisionの挙動を記録する
+- [x] UI操作による作成・削除・Undo・Redoのeventを記録する
 - [ ] Undo stackの位置や深さを照会できるか確認する
 
-直前のAPI操作だけが対象になると証明できない限り、Undoを公開しません。
+`aviutl2` 0.41.0のgeneric APIと同versionのPlugin SDK定義には、Undo/Redoを直接実行する
+API、stack位置、stack深さを取得するAPIは見つかりませんでした。Windows実測では
+`Ctrl+Z` で削除をUndoし、`Ctrl+Shift+Z` でRedoできましたが、これはAviUtl2全体の
+UI操作履歴を対象にするため、agentが直前に行った変更だけを安全に戻す根拠には
+なりません。
 
-> 未検証
+直前のAPI操作だけが対象になると証明できない限り、Undoを公開しません。
 
 ## 結果
 
