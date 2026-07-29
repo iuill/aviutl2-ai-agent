@@ -66,12 +66,13 @@ port 7890が残留せず、再起動したプラグインが再bindできるこ�
 
 - [x] HTTP worker からread sectionを呼ぶためのPhase 0プローブを実装する
 - [x] HTTP worker から read section を呼ぶ（通常状態）
-- [ ] HTTP worker から edit section を呼ぶ
-- [ ] event callback のthread IDと同期／非同期性を記録する
+- [x] plugin内の非event worker threadから edit section を呼ぶ
+- [x] event callback のthread IDを記録する
 - [x] event callback 内ではevent情報をqueueまたはatomic stateへ記録するだけとする
 - [x] event callback から `call_edit_section` を呼ばない
-- [ ] edit section 内で現在状態を読み取る
-- [ ] edit section を入れ子または連続で呼ぶ
+- [x] edit section 内で現在状態を読み取る
+- [x] edit section を連続で呼ぶ
+- [ ] edit section を入れ子で呼ぶ
 - [ ] section 実行中に終了する
 
 呼び出し可能なスレッドと、必要なdispatcher設計を記録します。
@@ -83,6 +84,16 @@ read/write、write/write並列呼び出しは必須完了条件にしません�
 
 > 通常状態でのHTTP workerからのread section呼び出しは成功しました。
 > 特殊状態と終了処理との競合は未検証です。
+
+2026-07-29にWindows Server 2025とAviUtl2 2.1.2で、公開APIを持たない一時buildを
+使い、plugin内で生成した非event worker threadから `call_edit_section` を呼びました。
+1回目のcallback内でobject数を読み、text objectを作成し、作成したhandleから名前を
+読み取った後、同じ位置への2件目の作成を意図的に失敗させました。callbackは完了し、
+続く2回目の `call_edit_section` も成功してobject数1を返しました。
+
+この結果から、観測した通常状態では非event worker threadからedit sectionを呼べ、
+edit内readと連続呼出しが成立しました。入れ子、並列、終了競合は未検証です。probeは
+実測後に製品buildから除去し、公開write経路にはしていません。
 
 ### HTTP worker read-sectionプローブ
 
@@ -257,17 +268,24 @@ loopback HTTP応答、HTTP workerからのread section呼び出しが成立す�
 
 ## Q2 — Undo と部分失敗
 
-状態：**繰延（Phase 2開始前）**
+状態：**調査中（Phase 2開始前）**
 
 - [ ] 1つのedit sectionで2オブジェクトを変更し、Undoを1回実行する
-- [ ] 2件目のmutationを意図的に失敗させる
+- [x] 2件目のmutationを意図的に失敗させる
 - [ ] オブジェクト作成後、設定更新を失敗させる
 - [ ] 複合操作内で削除し、Undoする
-- [ ] 明示的なrollback APIの有無を調べる
+- [x] 明示的なrollback APIの有無を調べる
 
 Undoの粒度と、部分的な変更が残るかを記録します。
 
-> 未検証
+同じ2026-07-29の一時buildで、1つのedit section内の1件目にtext objectを作成し、
+同位置への2件目の作成を失敗させました。callback終了後も1件目は残り、SDKによる
+自動rollbackは行われませんでした。その後のUI Undo 1回で残った1件目が消えました。
+
+`aviutl2` 0.41.0のgeneric APIと同versionのPlugin SDK定義には、明示的なtransaction、
+rollback、Undo単位を指定するAPIは見つかりませんでした。従って複数mutationを
+原子的とは扱えず、Phase 2の最初の公開writeは1 request 1 mutationに限定します。
+設定更新失敗と削除を含む複合操作のUndo粒度は引き続き未検証です。
 
 ## Q3 — フレームレンダリング
 

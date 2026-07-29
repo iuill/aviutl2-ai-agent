@@ -81,6 +81,11 @@ Undo復元時のraw handleは削除前と同じで、Redo後の新規再作成�
 この結果は同一process内の1 objectだけに限られ、handleを公開identityとして保証する
 ものではありません。
 
+公開APIを持たない一時buildでは、plugin内の非event worker threadからedit sectionを
+連続して呼べました。1つのedit section内で1件目のtext作成後、同位置への2件目を
+失敗させると、1件目だけが残りました。UI Undo 1回で残った1件目は削除されました。
+自動rollbackは観測されず、実測後にprobeコードを製品buildから除去しました。
+
 ## 2026-07-28 port 7890競合時の観測
 
 最初に、port 7890を先に占有し、plugin初期化からbind errorを返す実装を
