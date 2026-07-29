@@ -25,23 +25,39 @@ mod windows_plugin {
     #[aviutl2::plugin(GenericPlugin)]
     struct AgentPlugin {
         api_server: Option<ApiServer>,
+        api_start_error: Option<String>,
     }
 
     impl GenericPlugin for AgentPlugin {
         fn new(_info: aviutl2::AviUtl2Info) -> aviutl2::AnyResult<Self> {
-            let api_server = ApiServer::start("127.0.0.1:7890", 4)?;
+            let (api_server, api_start_error) = match ApiServer::start("127.0.0.1:7890", 4) {
+                Ok(server) => (Some(server), None),
+                Err(error) => {
+                    let error = error.to_string();
+                    write_lifecycle_event("api_start_failed", None, Some(&error));
+                    (None, Some(error))
+                }
+            };
             Ok(Self {
-                api_server: Some(api_server),
+                api_server,
+                api_start_error,
             })
         }
 
         fn plugin_info(&self) -> GenericPluginTable {
-            GenericPluginTable {
-                name: "aviutl2-ai-agent Phase 1".to_owned(),
-                information: format!(
+            let information = match &self.api_start_error {
+                Some(error) => format!(
+                    "aviutl2-ai-agent {} — local API unavailable: {error}",
+                    env!("CARGO_PKG_VERSION")
+                ),
+                None => format!(
                     "aviutl2-ai-agent {} — local read-only API",
                     env!("CARGO_PKG_VERSION")
                 ),
+            };
+            GenericPluginTable {
+                name: "aviutl2-ai-agent Phase 1".to_owned(),
+                information,
             }
         }
 
@@ -52,7 +68,7 @@ mod windows_plugin {
 
     impl Drop for AgentPlugin {
         fn drop(&mut self) {
-            write_lifecycle_event("plugin_drop_started", None);
+            write_lifecycle_event("plugin_drop_started", None, None);
             let observation = self.api_server.as_mut().map(ApiServer::shutdown).unwrap_or(
                 crate::server::ShutdownObservation {
                     worker_count: 0,
@@ -62,13 +78,14 @@ mod windows_plugin {
             write_lifecycle_event(
                 "http_workers_joined",
                 Some((observation.worker_count, observation.join_panics)),
+                None,
             );
             self.api_server.take();
-            write_lifecycle_event("plugin_drop_completed", None);
+            write_lifecycle_event("plugin_drop_completed", None, None);
         }
     }
 
-    fn write_lifecycle_event(event: &str, shutdown: Option<(usize, usize)>) {
+    fn write_lifecycle_event(event: &str, shutdown: Option<(usize, usize)>, error: Option<&str>) {
         let Ok(path) = std::env::var(LIFECYCLE_LOG_ENV) else {
             return;
         };
@@ -87,6 +104,9 @@ mod windows_plugin {
         if let Some((worker_count, join_panics)) = shutdown {
             record["workerCount"] = worker_count.into();
             record["joinPanics"] = join_panics.into();
+        }
+        if let Some(error) = error {
+            record["error"] = error.into();
         }
         let _ = writeln!(file, "{record}");
     }

@@ -424,3 +424,23 @@ Phase 1の開始範囲とアーキテクチャ制約は [`design.md`](design.md)
 - Q7のUndo API公開可否
 
 Q2とQ7を含むwrite固有項目は、Phase 2の開始前までに確定します。
+
+## Q9 — scene identityと列挙
+
+状態：**調査中（Phase 1拡張前）**
+
+`aviutl2` 0.41.0の
+`generic::EditInfo` はcurrent edit sectionの `scene_id: i32` を公開し、
+`EditSection::get_scene_name` でcurrent scene名を取得できます。一方、同versionの
+generic APIと`aviutl2-sys` Plugin SDK定義にはscene一覧を列挙する関数がありません。
+
+この静的調査だけではscene IDの寿命や再利用を保証できないため、次をWindowsで
+追加観測します。
+
+- [ ] Rootと追加sceneのIDを記録する
+- [ ] sceneを往復してIDの一致を記録する
+- [ ] 同名sceneを作成してIDを記録する
+- [ ] project再読込と別project読込後のIDを記録する
+- [ ] scene削除後にIDが再利用されるか記録する
+
+scene一覧APIは、安全な列挙方法が確認できるまで公開しません。

@@ -97,7 +97,7 @@ write固有の調査はPhase 2の開始条件とします。
 
 ## GitHub-hosted Windows runtime spike
 
-手動起動専用の `AviUtl2 runtime spike` workflowは、GitHub-hosted
+手動起動専用の `AviUtl2 runtime spike` workflowでは、GitHub-hosted
 `windows-2022` 上でAviUtl2を無人起動できるか調べます。AviUtl2 2.1.2のZIPは
 作者の配布サイトからworkflow実行中に直接取得し、固定したSHA-256を検証します。
 取得したZIPは、公式配布元への反復アクセスを避けるため、バージョンとSHA-256を
@@ -107,7 +107,9 @@ keyにしたGitHub Actions cacheへ保存します。cache miss時だけ公式�
 
 このworkflowは、AviUtl2の起動、Phase 1 pluginのロード、`health`、
 `status` と `current-scene` に加え、idle TCP clientを接続した状態での正常終了、全HTTP
-workerのjoin、終了後のport 7890再bindを検査します。失敗時のartifact採取に限り、
-残ったAviUtl2 processを強制終了します。GitHub-hosted runnerのGPU、DirectX、
-対話desktop、AviUtl2の初回確認が実行条件を満たすか自体も検証対象です。
+workerのjoin、終了後のport 7890再bindを検査します。さらにport 7890を先に占有して
+AviUtl2を再起動し、plugin初期化が完了しなくてもAviUtl2本体が起動・正常終了できることを
+観測します。失敗時のartifact採取に限り、残ったAviUtl2 processを強制終了します。
+GitHub-hosted runnerのGPU、DirectX、対話desktop、AviUtl2の初回確認が実行条件を
+満たすか自体も検証対象です。
 CIの必須チェックやpush triggerにはせず、手動実行でだけ起動します。

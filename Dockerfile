@@ -5,6 +5,7 @@ WORKDIR /src
 COPY rust-toolchain.toml ./
 RUN rustup target add x86_64-pc-windows-msvc \
  && cargo install cargo-xwin --version 0.19.2 --locked
+COPY .cargo/config.toml .cargo/config.toml
 COPY Cargo.toml Cargo.lock ./
 COPY crates/cli/Cargo.toml crates/cli/Cargo.toml
 COPY crates/plugin/Cargo.toml crates/plugin/Cargo.toml

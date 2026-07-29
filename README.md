@@ -4,7 +4,8 @@
 プロジェクトです。AviUtl2 Plugin SDKの基本挙動を調べるPhase 0は完了し、
 現在は最小のread-only APIを作るPhase 1です。Phase 0の観測結果は
 [`docs/phase0.md`](docs/phase0.md)、現在の設計範囲は
-[`docs/design.md`](docs/design.md)を参照してください。
+[`docs/design.md`](docs/design.md)、Phase 3までの実施順序は
+[`docs/roadmap.md`](docs/roadmap.md)を参照してください。
 
 これは非公式かつ実験段階のプロジェクトであり、AviUtl2公式のプロジェクトでは
 ありません。
@@ -35,8 +36,9 @@ cargo run -p aviutl2-ai-agent -- current-scene
 
 Phase 1では単一AviUtl2 instance用にloopback port 7890を固定しています。
 動的port、session discovery、認証は必要性が生じた時点で一緒に設計します。
-別のプロセスがすでにポート7890を使用している場合、`InitializePlugin` は失敗し、
-AviUtl2 はこのプラグインをロードしません。
+別のプロセスがすでにポート7890を使用している場合、pluginはAPI serverなしの
+無効状態でロードされます。プラグイン情報に表示される
+`local API unavailable` の理由を確認し、portを解放してAviUtl2を再起動してください。
 
 ## クロスビルド
 
