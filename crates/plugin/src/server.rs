@@ -7,20 +7,25 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use aviutl2_ai_agent_protocol::{
     ApiError, CurrentObjects, CurrentScene, CurrentTimeline, ErrorCode, Health, HealthStatus,
-    Status,
+    MoveObjectRequest, MoveObjectResponse, Status,
 };
 #[cfg(windows)]
 use aviutl2_ai_agent_protocol::{FrameRate, TimelineObject};
 
-use crate::editor::{EditorError, EditorGate};
+use crate::{
+    editor::{EditorError, EditorGate},
+    mutation::MoveValidationError,
+};
 
 const MAX_REQUEST_HEAD: usize = 8 * 1024;
+const MAX_REQUEST_BODY: usize = 16 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_millis(250);
+const EXPECT_BODY_TIMEOUT: Duration = Duration::from_secs(2);
 const ACCEPT_POLL: Duration = Duration::from_millis(5);
 const EDITOR_GATE_TIMEOUT: Duration = Duration::from_millis(100);
 const RETRY_AFTER_SECONDS: u64 = 1;
@@ -38,6 +43,18 @@ struct SceneRead {
 type SceneReader = dyn Fn() -> Result<SceneRead, EditorError> + Send + Sync;
 type TimelineReader = dyn Fn() -> Result<CurrentTimeline, EditorError> + Send + Sync;
 type ObjectsReader = dyn Fn() -> Result<CurrentObjects, EditorError> + Send + Sync;
+type ObjectMover =
+    dyn Fn(&MoveObjectRequest) -> Result<MoveObjectResponse, MoveError> + Send + Sync;
+
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MoveError {
+    Unavailable,
+    SceneConflict,
+    Validation(MoveValidationError),
+    ApplyFailed,
+    VerifyFailed,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
@@ -58,6 +75,7 @@ struct ServerContext {
     scene_reader: Arc<SceneReader>,
     timeline_reader: Arc<TimelineReader>,
     objects_reader: Arc<ObjectsReader>,
+    object_mover: Arc<ObjectMover>,
 }
 
 /// Loopback HTTP server whose threads and SDK access gate are owned here.
@@ -84,6 +102,7 @@ impl ApiServer {
             platform_scene_reader(),
             platform_timeline_reader(),
             platform_objects_reader(),
+            platform_object_mover(),
             |index, listener, shutting_down, context| {
                 thread::Builder::new()
                     .name(format!("aviutl2-ai-agent-http-{index}"))
@@ -98,6 +117,7 @@ impl ApiServer {
         scene_reader: Arc<SceneReader>,
         timeline_reader: Arc<TimelineReader>,
         objects_reader: Arc<ObjectsReader>,
+        object_mover: Arc<ObjectMover>,
         mut spawn_worker: F,
     ) -> Result<Self, ServerError>
     where
@@ -132,6 +152,7 @@ impl ApiServer {
             scene_reader,
             timeline_reader,
             objects_reader,
+            object_mover,
         });
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
@@ -212,7 +233,7 @@ fn handle_connection(mut stream: TcpStream, context: &ServerContext) {
     }
     let _ = stream.set_nodelay(true);
 
-    let Some(request) = read_request_head(&mut stream) else {
+    let Some(request) = read_request(&mut stream) else {
         return;
     };
     let response = route(&request, context);
@@ -231,7 +252,12 @@ fn handle_connection(mut stream: TcpStream, context: &ServerContext) {
     let _ = stream.flush();
 }
 
-fn read_request_head(stream: &mut TcpStream) -> Option<String> {
+struct HttpRequest {
+    head: String,
+    body: Vec<u8>,
+}
+
+fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
     let mut request = Vec::with_capacity(512);
     let mut chunk = [0_u8; 512];
     while request.len() < MAX_REQUEST_HEAD {
@@ -239,13 +265,78 @@ fn read_request_head(stream: &mut TcpStream) -> Option<String> {
             Ok(0) | Err(_) => return None,
             Ok(count) => {
                 request.extend_from_slice(&chunk[..count]);
-                if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                    return std::str::from_utf8(&request).ok().map(str::to_owned);
+                if let Some(head_end) = request
+                    .windows(4)
+                    .position(|window| window == b"\r\n\r\n")
+                    .map(|position| position + 4)
+                {
+                    let head = std::str::from_utf8(&request[..head_end]).ok()?.to_owned();
+                    let content_length = parse_content_length(&head)?;
+                    if content_length > MAX_REQUEST_BODY {
+                        return None;
+                    }
+                    let mut body = request[head_end..].to_vec();
+                    let body_deadline = Instant::now() + EXPECT_BODY_TIMEOUT;
+                    if expects_continue(&head) && body.len() < content_length {
+                        stream.set_read_timeout(Some(EXPECT_BODY_TIMEOUT)).ok()?;
+                    }
+                    while body.len() < content_length {
+                        match stream.read(&mut chunk) {
+                            Ok(0) => return None,
+                            Ok(count) => body.extend_from_slice(&chunk[..count]),
+                            Err(error)
+                                if matches!(
+                                    error.kind(),
+                                    std::io::ErrorKind::Interrupted
+                                        | std::io::ErrorKind::WouldBlock
+                                        | std::io::ErrorKind::TimedOut
+                                ) && Instant::now() < body_deadline =>
+                            {
+                                thread::sleep(Duration::from_millis(1));
+                                continue;
+                            }
+                            Err(_) => return None,
+                        }
+                        if body.len() > content_length {
+                            return None;
+                        }
+                    }
+                    return Some(HttpRequest { head, body });
                 }
             }
         }
     }
     None
+}
+
+fn expects_continue(head: &str) -> bool {
+    head.split("\r\n")
+        .skip(1)
+        .take_while(|line| !line.is_empty())
+        .filter_map(|line| line.split_once(':'))
+        .any(|(name, value)| {
+            name.eq_ignore_ascii_case("expect") && value.trim().eq_ignore_ascii_case("100-continue")
+        })
+}
+
+fn parse_content_length(head: &str) -> Option<usize> {
+    let mut content_length = None;
+    for line in head
+        .split("\r\n")
+        .skip(1)
+        .take_while(|line| !line.is_empty())
+    {
+        let Some((name, value)) = line.split_once(':') else {
+            return Some(0);
+        };
+        if name.eq_ignore_ascii_case("content-length") {
+            if content_length.is_some() {
+                return None;
+            }
+            content_length = Some(value.trim().parse().ok()?);
+        }
+    }
+    Some(content_length.unwrap_or(0))
 }
 
 struct HttpResponse {
@@ -254,8 +345,8 @@ struct HttpResponse {
     retry_after: Option<u64>,
 }
 
-fn route(request: &str, context: &ServerContext) -> HttpResponse {
-    let mut lines = request.split("\r\n");
+fn route(request: &HttpRequest, context: &ServerContext) -> HttpResponse {
+    let mut lines = request.head.split("\r\n");
     let request_line = lines.next().unwrap_or_default();
     let mut host = None;
     let mut has_origin = false;
@@ -290,7 +381,7 @@ fn route(request: &str, context: &ServerContext) -> HttpResponse {
     let method = parts.next();
     let path = parts.next();
     let version = parts.next();
-    if parts.next().is_some() || method != Some("GET") || version != Some("HTTP/1.1") {
+    if parts.next().is_some() || version != Some("HTTP/1.1") {
         return api_error(
             "400 Bad Request",
             ErrorCode::InvalidRequest,
@@ -300,33 +391,35 @@ fn route(request: &str, context: &ServerContext) -> HttpResponse {
         );
     }
 
-    match path {
-        Some("/healthz") => json_response(&Health {
+    match (method, path) {
+        (Some("GET"), Some("/healthz")) => json_response(&Health {
             status: HealthStatus::Ok,
             plugin_version: env!("CARGO_PKG_VERSION").to_owned(),
         }),
-        Some("/v1/status") => json_response(&context.status),
-        Some("/v1/scenes/current") => match context.editor_gate.read(|| (context.scene_reader)()) {
-            Ok(scene) => {
-                write_scene_observation(&scene);
-                json_response(&CurrentScene { name: scene.name })
+        (Some("GET"), Some("/v1/status")) => json_response(&context.status),
+        (Some("GET"), Some("/v1/scenes/current")) => {
+            match context.editor_gate.read(|| (context.scene_reader)()) {
+                Ok(scene) => {
+                    write_scene_observation(&scene);
+                    json_response(&CurrentScene { name: scene.name })
+                }
+                Err(EditorError::Busy) => api_error(
+                    "503 Service Unavailable",
+                    ErrorCode::EditorBusy,
+                    "EditorGate is busy",
+                    true,
+                    Some(RETRY_AFTER_SECONDS),
+                ),
+                Err(EditorError::Unavailable) => api_error(
+                    "503 Service Unavailable",
+                    ErrorCode::EditorUnavailable,
+                    "AviUtl2 did not accept the read",
+                    true,
+                    Some(RETRY_AFTER_SECONDS),
+                ),
             }
-            Err(EditorError::Busy) => api_error(
-                "503 Service Unavailable",
-                ErrorCode::EditorBusy,
-                "EditorGate is busy",
-                true,
-                Some(RETRY_AFTER_SECONDS),
-            ),
-            Err(EditorError::Unavailable) => api_error(
-                "503 Service Unavailable",
-                ErrorCode::EditorUnavailable,
-                "AviUtl2 did not accept the read",
-                true,
-                Some(RETRY_AFTER_SECONDS),
-            ),
-        },
-        Some("/v1/scenes/current/timeline") => {
+        }
+        (Some("GET"), Some("/v1/scenes/current/timeline")) => {
             match context.editor_gate.read(|| (context.timeline_reader)()) {
                 Ok(timeline) => json_response(&timeline),
                 Err(EditorError::Busy) => api_error(
@@ -345,7 +438,7 @@ fn route(request: &str, context: &ServerContext) -> HttpResponse {
                 ),
             }
         }
-        Some("/v1/scenes/current/objects") => {
+        (Some("GET"), Some("/v1/scenes/current/objects")) => {
             match context.editor_gate.read(|| (context.objects_reader)()) {
                 Ok(objects) => json_response(&objects),
                 Err(EditorError::Busy) => api_error(
@@ -364,14 +457,49 @@ fn route(request: &str, context: &ServerContext) -> HttpResponse {
                 ),
             }
         }
-        _ => api_error(
+        (Some("POST"), Some("/v1/scenes/current/objects/move")) => {
+            if !has_json_content_type(&request.head) {
+                api_error(
+                    "400 Bad Request",
+                    ErrorCode::InvalidRequest,
+                    "Content-Type must be application/json",
+                    false,
+                    None,
+                )
+            } else {
+                move_object(&request.body, context)
+            }
+        }
+        (Some("GET"), _) => api_error(
             "404 Not Found",
             ErrorCode::RouteNotFound,
             "Route not found",
             false,
             None,
         ),
+        _ => api_error(
+            "400 Bad Request",
+            ErrorCode::InvalidRequest,
+            "Invalid request method",
+            false,
+            None,
+        ),
     }
+}
+
+fn has_json_content_type(head: &str) -> bool {
+    head.split("\r\n")
+        .skip(1)
+        .take_while(|line| !line.is_empty())
+        .filter_map(|line| line.split_once(':'))
+        .any(|(name, value)| {
+            name.eq_ignore_ascii_case("content-type")
+                && value
+                    .trim()
+                    .split(';')
+                    .next()
+                    .is_some_and(|media_type| media_type.eq_ignore_ascii_case("application/json"))
+        })
 }
 
 fn json_response(value: &impl serde::Serialize) -> HttpResponse {
@@ -387,6 +515,76 @@ fn json_response(value: &impl serde::Serialize) -> HttpResponse {
             "Plugin internal error",
             false,
             None,
+        ),
+    }
+}
+
+fn move_object(body: &[u8], context: &ServerContext) -> HttpResponse {
+    let request = match serde_json::from_slice::<MoveObjectRequest>(body) {
+        Ok(request) => request,
+        Err(_) => {
+            return api_error(
+                "400 Bad Request",
+                ErrorCode::InvalidRequest,
+                "Invalid move request",
+                false,
+                None,
+            );
+        }
+    };
+    match context
+        .editor_gate
+        .read(|| Ok((context.object_mover)(&request)))
+    {
+        Ok(Ok(response)) => json_response(&response),
+        Ok(Err(MoveError::SceneConflict)) => api_error(
+            "409 Conflict",
+            ErrorCode::StateConflict,
+            "Current scene does not match the request",
+            false,
+            None,
+        ),
+        Ok(Err(MoveError::Validation(MoveValidationError::TargetNotFound))) => api_error(
+            "404 Not Found",
+            ErrorCode::ObjectNotFound,
+            "Target object was not found",
+            false,
+            None,
+        ),
+        Ok(Err(MoveError::Validation(_))) => api_error(
+            "409 Conflict",
+            ErrorCode::StateConflict,
+            "Object snapshot or destination conflicts with current state",
+            false,
+            None,
+        ),
+        Ok(Err(MoveError::Unavailable)) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Ok(Err(MoveError::ApplyFailed | MoveError::VerifyFailed)) => api_error(
+            "500 Internal Server Error",
+            ErrorCode::InternalError,
+            "Move result could not be confirmed",
+            false,
+            None,
+        ),
+        Err(EditorError::Busy) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorBusy,
+            "EditorGate is busy",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Err(EditorError::Unavailable) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
         ),
     }
 }
@@ -501,6 +699,66 @@ fn platform_objects_reader() -> Arc<ObjectsReader> {
 }
 
 #[cfg(windows)]
+fn platform_object_mover() -> Arc<ObjectMover> {
+    Arc::new(|request| {
+        if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+            return Err(MoveError::Unavailable);
+        }
+        let layer_max = crate::windows_plugin::EDIT_HANDLE.get_edit_info().layer_max;
+        crate::windows_plugin::EDIT_HANDLE
+            .call_edit_section(|section| {
+                let scene_name = section
+                    .get_scene_name()
+                    .map_err(|_| MoveError::Unavailable)?;
+                if scene_name != request.expected_scene_name {
+                    return Err(MoveError::SceneConflict);
+                }
+
+                let mut handles = Vec::new();
+                let mut objects = Vec::new();
+                for layer in 0..=layer_max {
+                    for (position, handle) in section.objects_in_layer(layer) {
+                        handles.push(handle);
+                        objects.push(TimelineObject {
+                            layer: position.layer,
+                            start_frame: position.start,
+                            end_frame: position.end,
+                            name: section.get_object_name(handle).ok().flatten(),
+                        });
+                    }
+                }
+                let (target_index, expected) =
+                    crate::mutation::validate_move(&objects, &request.target, &request.destination)
+                        .map_err(MoveError::Validation)?;
+                let handle = handles[target_index];
+                section
+                    .move_object(
+                        handle,
+                        request.destination.layer,
+                        request.destination.start_frame,
+                    )
+                    .map_err(|_| MoveError::ApplyFailed)?;
+                let position = section
+                    .get_object_layer_frame(handle)
+                    .map_err(|_| MoveError::VerifyFailed)?;
+                let actual = TimelineObject {
+                    layer: position.layer,
+                    start_frame: position.start,
+                    end_frame: position.end,
+                    name: section
+                        .get_object_name(handle)
+                        .map_err(|_| MoveError::VerifyFailed)?,
+                };
+                if actual != expected {
+                    return Err(MoveError::VerifyFailed);
+                }
+                Ok(MoveObjectResponse { object: actual })
+            })
+            .map_err(|_| MoveError::Unavailable)?
+    })
+}
+
+#[cfg(windows)]
 fn write_object_observation(
     section: &aviutl2::generic::ReadSection,
     raw_scene_id: i32,
@@ -551,6 +809,11 @@ fn platform_objects_reader() -> Arc<ObjectsReader> {
     Arc::new(|| Err(EditorError::Unavailable))
 }
 
+#[cfg(not(windows))]
+fn platform_object_mover() -> Arc<ObjectMover> {
+    Arc::new(|_| Err(MoveError::Unavailable))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -574,12 +837,26 @@ mod tests {
     fn start(
         reader: impl Fn() -> Result<super::SceneRead, EditorError> + Send + Sync + 'static,
     ) -> ApiServer {
+        start_with_mover(reader, |_| Err(super::MoveError::Unavailable))
+    }
+
+    fn start_with_mover(
+        reader: impl Fn() -> Result<super::SceneRead, EditorError> + Send + Sync + 'static,
+        mover: impl Fn(
+            &aviutl2_ai_agent_protocol::MoveObjectRequest,
+        )
+            -> Result<aviutl2_ai_agent_protocol::MoveObjectResponse, super::MoveError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> ApiServer {
         ApiServer::start_with_parts(
             "127.0.0.1:0",
             4,
             Arc::new(reader),
             Arc::new(|| Ok(timeline())),
             Arc::new(|| Ok(objects())),
+            Arc::new(mover),
             |_, listener, shutting_down, context| {
                 thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
             },
@@ -634,6 +911,16 @@ mod tests {
         response
     }
 
+    fn post(address: std::net::SocketAddr, path: &str, body: &str) -> String {
+        raw_request(
+            address,
+            &format!(
+                "POST {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        )
+    }
+
     fn body(response: &str) -> &str {
         response.split_once("\r\n\r\n").unwrap().1
     }
@@ -686,6 +973,79 @@ mod tests {
         let actual: aviutl2_ai_agent_protocol::CurrentObjects =
             serde_json::from_str(body(&response)).unwrap();
         assert_eq!(actual, objects());
+    }
+
+    #[test]
+    fn move_endpoint_parses_body_and_returns_handle_free_result() {
+        let server = start_with_mover(
+            || Ok(scene("Root", 0)),
+            |request| {
+                assert_eq!(request.expected_scene_name, "Root");
+                Ok(aviutl2_ai_agent_protocol::MoveObjectResponse {
+                    object: aviutl2_ai_agent_protocol::TimelineObject {
+                        layer: request.destination.layer,
+                        start_frame: request.destination.start_frame,
+                        end_frame: request.destination.start_frame + 29,
+                        name: request.target.name.clone(),
+                    },
+                })
+            },
+        );
+        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/move",
+            request,
+        );
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        let moved: aviutl2_ai_agent_protocol::MoveObjectResponse =
+            serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(moved.object.layer, 2);
+        assert_eq!(moved.object.start_frame, 100);
+        assert_eq!(moved.object.end_frame, 129);
+    }
+
+    #[test]
+    fn move_endpoint_rejects_invalid_and_conflicting_requests() {
+        let server = start_with_mover(
+            || Ok(scene("Root", 0)),
+            |_| Err(super::MoveError::SceneConflict),
+        );
+        let invalid = post(server.local_addr(), "/v1/scenes/current/objects/move", "{}");
+        assert!(invalid.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+
+        let request = r#"{"expectedSceneName":"Other","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let conflict = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/move",
+            request,
+        );
+        assert!(conflict.starts_with("HTTP/1.1 409 Conflict\r\n"));
+        let error: ApiError = serde_json::from_str(body(&conflict)).unwrap();
+        assert_eq!(error.code, ErrorCode::StateConflict);
+        assert!(!error.retryable);
+    }
+
+    #[test]
+    fn move_endpoint_supports_expect_continue() {
+        let server = start_with_mover(
+            || Ok(scene("Root", 0)),
+            |_| Err(super::MoveError::SceneConflict),
+        );
+        let body_text = r#"{"expectedSceneName":"Other","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let mut stream = TcpStream::connect(server.local_addr()).unwrap();
+        write!(
+            stream,
+            "POST /v1/scenes/current/objects/move HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nExpect: 100-continue\r\n\r\n",
+            server.local_addr(),
+            body_text.len()
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(300));
+        stream.write_all(body_text.as_bytes()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 409 Conflict\r\n"));
     }
 
     #[test]
@@ -769,6 +1129,7 @@ mod tests {
             Arc::new(|| Ok(scene("Root", 0))),
             Arc::new(|| Ok(timeline())),
             Arc::new(|| Ok(objects())),
+            Arc::new(|_| Err(super::MoveError::Unavailable)),
             {
                 let accepted = Arc::clone(&accepted);
                 move |_, listener, shutting_down, context| {
@@ -835,6 +1196,7 @@ mod tests {
             Arc::new(|| Ok(scene("Root", 0))),
             Arc::new(|| Ok(timeline())),
             Arc::new(|| Ok(objects())),
+            Arc::new(|_| Err(super::MoveError::Unavailable)),
             |index, listener, shutting_down, context| {
                 if index == 2 {
                     return Err(std::io::Error::other("injected spawn failure"));

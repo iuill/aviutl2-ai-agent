@@ -65,6 +65,27 @@ pub struct TimelineObject {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MoveObjectRequest {
+    pub expected_scene_name: String,
+    pub target: TimelineObject,
+    pub destination: MoveObjectDestination,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MoveObjectDestination {
+    pub layer: usize,
+    pub start_frame: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveObjectResponse {
+    pub object: TimelineObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
     pub code: ErrorCode,
     pub message: String,
@@ -78,6 +99,8 @@ pub enum ErrorCode {
     RouteNotFound,
     EditorBusy,
     EditorUnavailable,
+    ObjectNotFound,
+    StateConflict,
     InternalError,
 }
 
@@ -167,6 +190,18 @@ mod tests {
             serde_json::to_string(&error).unwrap(),
             r#"{"code":"editor_busy","message":"EditorGate is busy","retryable":true}"#
         );
+    }
+
+    #[test]
+    fn move_request_uses_strict_camel_case_contract() {
+        let json = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let request = serde_json::from_str::<MoveObjectRequest>(json).unwrap();
+        assert_eq!(request.expected_scene_name, "Root");
+        assert_eq!(request.destination.layer, 2);
+        assert_eq!(serde_json::to_string(&request).unwrap(), json);
+
+        let with_unknown = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100},"extra":true}"#;
+        assert!(serde_json::from_str::<MoveObjectRequest>(with_unknown).is_err());
     }
 
     #[test]

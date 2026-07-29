@@ -1,11 +1,6 @@
-use aviutl2_ai_agent_protocol::TimelineObject;
+use aviutl2_ai_agent_protocol::{MoveObjectDestination, TimelineObject};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct MoveDestination {
-    pub(crate) layer: usize,
-    pub(crate) start_frame: usize,
-}
-
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MoveValidationError {
     TargetNotFound,
@@ -14,10 +9,11 @@ pub(crate) enum MoveValidationError {
     DestinationOccupied,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn validate_move(
     objects: &[TimelineObject],
     target: &TimelineObject,
-    destination: MoveDestination,
+    destination: &MoveObjectDestination,
 ) -> Result<(usize, TimelineObject), MoveValidationError> {
     let matches = objects
         .iter()
@@ -84,7 +80,7 @@ mod tests {
         let (index, moved) = validate_move(
             &objects,
             &target,
-            MoveDestination {
+            &MoveObjectDestination {
                 layer: 2,
                 start_frame: 100,
             },
@@ -101,7 +97,7 @@ mod tests {
             validate_move(
                 &[],
                 &target,
-                MoveDestination {
+                &MoveObjectDestination {
                     layer: 1,
                     start_frame: 0,
                 }
@@ -112,7 +108,7 @@ mod tests {
             validate_move(
                 &[target.clone(), target.clone()],
                 &target,
-                MoveDestination {
+                &MoveObjectDestination {
                     layer: 1,
                     start_frame: 0,
                 }
@@ -129,7 +125,7 @@ mod tests {
             validate_move(
                 &[target.clone(), occupied],
                 &target,
-                MoveDestination {
+                &MoveObjectDestination {
                     layer: 1,
                     start_frame: 11,
                 }
@@ -145,7 +141,7 @@ mod tests {
             validate_move(
                 &[target.clone()],
                 &target,
-                MoveDestination {
+                &MoveObjectDestination {
                     layer: 0,
                     start_frame: usize::MAX,
                 }

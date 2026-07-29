@@ -1,7 +1,6 @@
 //! Phase 1 read-only API plugin.
 
 mod editor;
-#[cfg(test)]
 mod mutation;
 mod server;
 

@@ -83,7 +83,7 @@ MCPはpluginのvalidationを迂回せず、write toolを含めません。
 
 ## Phase 2: 既存objectの最小write
 
-状態: **moveのlocator・衝突検証を実装中**
+状態: **move APIを実装し、Windows実機検証中**
 
 実装開始前に `phase0.md` の次をWindowsで完了し、結果を設計へ反映します。
 

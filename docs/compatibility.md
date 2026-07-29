@@ -176,3 +176,21 @@ native command errorを捕捉するようruntime smokeを修正しました。
 class `Button`として公開され、UIA InvokePatternをsupportしていました。
 dialog、button名、Automation ID、classが一致する唯一の要素へInvokePatternを実行し、
 信頼確認後にpluginの`health`が成功することを確認しました。
+
+同じVM、AviUtl2 2.1.2、正規Docker cross-build成果物で、Phase 2のobject moveも
+実測しました。FlaUIのUIA3 InvokePatternでRootへtext objectを1件作成し、
+`GET /v1/scenes/current/objects` がlayer 0、frame 142から222、nameなしを返すことを
+確認してから、次を実行しました。
+
+1. 完全なsnapshotとRootを指定し、layer 2、start frame 300へmoveする
+2. 同じ古いsnapshotを再送する
+3. UIからUndoし、元のsnapshotへ戻ることを確認する
+4. `Expect: 100-continue` を送るcurlとPowerShell 5.1の`Invoke-RestMethod`でも
+   moveを往復する
+
+最初のmoveはlayer 2、frame 300から380のsnapshotを返しました。古いsnapshotの再送は
+`object_not_found`の404となり、別objectを変更しませんでした。UI Undo 1回で元位置へ
+復元しました。`Expect: 100-continue` を使うclientは本文送信まで約1秒待つため、
+pluginはこの場合だけ本文待機を2秒へ延長しています。curlと`Invoke-RestMethod`の
+両方でmove結果を受信できました。検証後はobjectを元位置へ戻し、AviUtl2を終了して
+processが残っていないことを確認しました。

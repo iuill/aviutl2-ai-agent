@@ -225,6 +225,28 @@ Windows実測により、非event worker threadからedit sectionを呼べる一
 current scene名、対象の完全なsnapshot、移動先layerとstart frameを持ちます。処理全体を
 1回のEditorGate取得と1回のedit section内で次の順に実行します。
 
+```
+POST /v1/scenes/current/objects/move
+Content-Type: application/json
+
+{
+  "expectedSceneName": "Root",
+  "target": {
+    "layer": 0,
+    "startFrame": 10,
+    "endFrame": 39,
+    "name": "Title"
+  },
+  "destination": {
+    "layer": 2,
+    "startFrame": 100
+  }
+}
+```
+
+成功時は `{"object": <移動後snapshot>}` を返します。requestの未知フィールドは
+拒否し、bodyは16 KiBを上限とします。
+
 1. current scene名がrequestの期待値と一致するか確認する
 2. layer、start、end、nameが完全一致するobjectを列挙する
 3. 一致が1件だけであることを確認する
