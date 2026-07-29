@@ -282,6 +282,14 @@ impl ClientError {
                     },
                 ..
             } => 3,
+            Self::Api {
+                error:
+                    ApiError {
+                        code: ErrorCode::MutationOutcomeUnknown,
+                        ..
+                    },
+                ..
+            } => 4,
             Self::Api { .. } | Self::Other(_) => 1,
         }
     }
@@ -494,6 +502,16 @@ mod tests {
                 get::<CurrentScene>(&endpoint, "/v1/scenes/current", "current scene").unwrap_err();
             assert_eq!(error.exit_code(), 3);
         }
+    }
+
+    #[test]
+    fn maps_unknown_mutation_outcome_to_exit_code_four() {
+        let endpoint = serve_once(
+            "500 Internal Server Error",
+            r#"{"code":"mutation_outcome_unknown","message":"re-read current objects","retryable":false}"#,
+        );
+        let error = get::<Status>(&endpoint, "/v1/status", "status").unwrap_err();
+        assert_eq!(error.exit_code(), 4);
     }
 
     #[test]

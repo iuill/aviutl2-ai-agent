@@ -274,7 +274,10 @@ fn handle_connection(mut stream: TcpStream, context: &ServerContext) {
         return;
     };
     let response = route(&request, context);
+    write_response(&mut stream, &response);
+}
 
+fn write_response(stream: &mut TcpStream, response: &HttpResponse) {
     let mut head = format!(
         "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
         response.status,
@@ -310,6 +313,14 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                     let head = std::str::from_utf8(&request[..head_end]).ok()?.to_owned();
                     let content_length = parse_content_length(&head)?;
                     if content_length > MAX_REQUEST_BODY {
+                        let response = api_error(
+                            "413 Payload Too Large",
+                            ErrorCode::InvalidRequest,
+                            "Request body exceeds the 16 KiB limit",
+                            false,
+                            None,
+                        );
+                        write_response(stream, &response);
                         return None;
                     }
                     let mut body = request[head_end..].to_vec();
@@ -1053,7 +1064,7 @@ fn platform_timeline_reader() -> Arc<TimelineReader> {
 
 #[cfg(windows)]
 fn sdk_u64(value: usize) -> u64 {
-    u64::try_from(value).expect("Windows SDK usize must fit the public u64 contract")
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 #[cfg(windows)]
@@ -1990,6 +2001,26 @@ mod tests {
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
         assert!(response.starts_with("HTTP/1.1 409 Conflict\r\n"));
+    }
+
+    #[test]
+    fn oversized_expect_continue_is_rejected_before_interim_response() {
+        let server = start(|| Ok(scene("Root", 0)));
+        let mut stream = TcpStream::connect(server.local_addr()).unwrap();
+        write!(
+            stream,
+            "POST /v1/scenes/current/objects/move HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nExpect: 100-continue\r\n\r\n",
+            server.local_addr(),
+            super::MAX_REQUEST_BODY + 1
+        )
+        .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
+        assert!(!response.contains("100 Continue"));
+        let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert!(!error.retryable);
     }
 
     #[test]

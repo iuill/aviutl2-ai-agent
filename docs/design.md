@@ -183,13 +183,14 @@ HTTPエラーはSDK固有値ではなく、次の形に固定します。
 一時的に再試行できるbusyとread拒否だけ `retryable=true` とし、request不正、
 routeなし、内部エラーは `false` とします。内部詳細を無制限に返しません。
 CLIは成功を0、usageまたはrequest不正を2、retryableな一時的利用不能を3、
-その他の失敗を1とします。code、retryable、CLI終了codeの対応と
+mutation結果不明を4、その他の失敗を1とします。code、retryable、CLI終了codeの対応と
 `Retry-After` の秒数は最初のPhase 1 PRでtestに固定します。
 
 最初の実装ではEditorGateの取得期限を100ms、`Retry-After` を1秒に固定します。
 CLIはrequest不正を終了code 2、`editor_busy` と `editor_unavailable` を終了code 3、
-その他のAPIエラーを終了code 1として扱います。CLI自身のusage errorはclapの
-終了code 2を維持します。
+`mutation_outcome_unknown` を終了code 4、その他のAPIエラーを終了code 1として
+扱います。終了code 4では同じmutationを再送せず、`current-objects`で実状態を
+再取得します。CLI自身のusage errorはclapの終了code 2を維持します。
 
 EditorGateの取得順序はFIFOを保証しません。100msの期限はgate取得だけに適用し、
 取得後のSDK呼出し自体を中断しません。SDK呼出しが長時間完了しない場合、後続の

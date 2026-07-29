@@ -82,6 +82,11 @@ stdio transportは公式Rust SDKを使い、MCP `2026-07-28`とlegacy lifecycle�
 - Codexからread-only toolを呼び出せる
 - object一覧の情報量とページング方針を実利用で評価できる
 - 画像を扱う場合はbase64サイズと既定縮小幅を実測できる
+- MCP SDK更新後のWindows x64 binaryをnative実行し、stdio tool呼出しを確認できる
+
+最後の項目は正規cross-buildとは別の合格条件です。`rmcp` 3.0.1への移行後はLinuxの
+stdio integration testとWindows x64成果物生成まで完了していますが、Windows native
+実行は未確認です。
 
 ## Phase 2: 既存objectの最小write
 
