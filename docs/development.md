@@ -44,12 +44,10 @@ Docker-in-DockerのためDev Container自体はprivilegedで起動します。�
 コンテナ内で作成したDocker imageとcontainerは、ホストのDocker daemonには
 追加されません。
 
-Codex認証はホストの `~/.codex/auth.json` を共有します。GitHub CLIはホストの
-`~/.config/gh-devcontainers` を共有するため、初回はコンテナ内で次を実行します。
-
-```bash
-gh auth login
-```
+Codex認証はホストの `~/.codex/auth.json` を共有します。GitHub CLIもホストの
+`~/.config/gh` を共有するため、ホストでログイン済みならコンテナ内で再ログインする
+必要はありません。コンテナ内でのログイン、ログアウト、アカウント切り替えは
+ホストにも反映されます。
 
 ## 必須チェック
 

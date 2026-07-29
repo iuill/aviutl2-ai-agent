@@ -14,9 +14,9 @@
   },
   "mounts": [
     "source=${localEnv:HOME}/.codex/auth.json,target=/home/vscode/.codex/auth.json,type=bind",
-    "source=${localEnv:HOME}/.config/gh-devcontainers,target=/home/vscode/.config/gh,type=bind"
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
   ],
-  "initializeCommand": "bash .devcontainer/scripts/ensure-host-codex-auth.sh '${localEnv:HOME}/.codex/auth.json' && bash .devcontainer/scripts/ensure-host-gh-config.sh '${localEnv:HOME}/.config/gh-devcontainers'",
+  "initializeCommand": "bash .devcontainer/scripts/ensure-host-codex-auth.sh '${localEnv:HOME}/.codex/auth.json' && bash .devcontainer/scripts/ensure-host-gh-config.sh '${localEnv:HOME}/.config/gh'",
   "postCreateCommand": "cargo fetch --locked",
   "postStartCommand": "bash .devcontainer/scripts/ensure-docker-builder.sh",
   "customizations": {
