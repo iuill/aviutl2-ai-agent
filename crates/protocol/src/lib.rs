@@ -130,6 +130,22 @@ pub struct DuplicateObjectResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateMediaObjectRequest {
+    pub expected_scene_name: String,
+    pub media_path: String,
+    pub layer: usize,
+    pub start_frame: usize,
+    pub length: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateMediaObjectResponse {
+    pub object: TimelineObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
     pub code: ErrorCode,
     pub message: String,
@@ -270,6 +286,18 @@ mod tests {
         assert_eq!(request.text, "Hello");
         assert_eq!(request.length, 90);
         assert_eq!(serde_json::to_string(&request).unwrap(), json);
+    }
+
+    #[test]
+    fn create_media_request_uses_strict_camel_case_contract() {
+        let json = r#"{"expectedSceneName":"Root","mediaPath":"C:\\media\\example.png","layer":1,"startFrame":100,"length":90}"#;
+        let request = serde_json::from_str::<CreateMediaObjectRequest>(json).unwrap();
+        assert_eq!(request.media_path, r"C:\media\example.png");
+        assert_eq!(request.length, 90);
+        assert_eq!(serde_json::to_string(&request).unwrap(), json);
+
+        let with_unknown = r#"{"expectedSceneName":"Root","mediaPath":"C:\\media\\example.png","layer":1,"startFrame":100,"length":90,"extra":true}"#;
+        assert!(serde_json::from_str::<CreateMediaObjectRequest>(with_unknown).is_err());
     }
 
     #[test]

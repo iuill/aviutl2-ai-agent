@@ -215,3 +215,9 @@ UI Undo 1回でobject一覧が空へ戻りました。検証後はAviUtl2を終�
 複製しました。作成後にframe行を除くalias全体を元objectと比較する実装で成功し、
 effectと本文を含む内容が一致することを確認しました。UI Undo 1回では複製だけが消え、
 元objectは残りました。検証後はAviUtl2を終了しました。
+
+単一media createでは、検証用の1px PNGと1秒無音WAVをcaller-managedな絶対pathから
+作成しました。PNGはlayer 1、frame 100から189、WAVはlayer 2、frame 100から129で
+requestどおり作成されました。相対pathは`invalid_request`の400、既存objectと重なる
+作成は`state_conflict`の409でした。UI Undo 1回で最後に作成したWAVだけが消え、
+PNGは残りました。fixture pathは文書・製品ログへ記録せず、検証後にAviUtl2を終了しました。

@@ -11,10 +11,10 @@ use std::{
 };
 
 use aviutl2_ai_agent_protocol::{
-    ApiError, CreateTextObjectRequest, CreateTextObjectResponse, CurrentObjects, CurrentScene,
-    CurrentTimeline, DeleteObjectRequest, DeleteObjectResponse, DuplicateObjectRequest,
-    DuplicateObjectResponse, ErrorCode, Health, HealthStatus, MoveObjectRequest,
-    MoveObjectResponse, Status,
+    ApiError, CreateMediaObjectRequest, CreateMediaObjectResponse, CreateTextObjectRequest,
+    CreateTextObjectResponse, CurrentObjects, CurrentScene, CurrentTimeline, DeleteObjectRequest,
+    DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse, ErrorCode, Health,
+    HealthStatus, MoveObjectRequest, MoveObjectResponse, Status,
 };
 #[cfg(windows)]
 use aviutl2_ai_agent_protocol::{FrameRate, TimelineObject};
@@ -54,6 +54,9 @@ type TextObjectCreator = dyn Fn(&CreateTextObjectRequest) -> Result<CreateTextOb
     + Sync;
 type ObjectDuplicator =
     dyn Fn(&DuplicateObjectRequest) -> Result<DuplicateObjectResponse, MutationError> + Send + Sync;
+type MediaObjectCreator = dyn Fn(&CreateMediaObjectRequest) -> Result<CreateMediaObjectResponse, MutationError>
+    + Send
+    + Sync;
 
 struct ServerParts {
     scene_reader: Arc<SceneReader>,
@@ -63,11 +66,13 @@ struct ServerParts {
     object_deleter: Arc<ObjectDeleter>,
     text_object_creator: Arc<TextObjectCreator>,
     object_duplicator: Arc<ObjectDuplicator>,
+    media_object_creator: Arc<MediaObjectCreator>,
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MutationError {
+    InvalidPath,
     Unavailable,
     SceneConflict,
     Validation(MoveValidationError),
@@ -98,6 +103,7 @@ struct ServerContext {
     object_deleter: Arc<ObjectDeleter>,
     text_object_creator: Arc<TextObjectCreator>,
     object_duplicator: Arc<ObjectDuplicator>,
+    media_object_creator: Arc<MediaObjectCreator>,
 }
 
 /// Loopback HTTP server whose threads and SDK access gate are owned here.
@@ -129,6 +135,7 @@ impl ApiServer {
                 object_deleter: platform_object_deleter(),
                 text_object_creator: platform_text_object_creator(),
                 object_duplicator: platform_object_duplicator(),
+                media_object_creator: platform_media_object_creator(),
             },
             |index, listener, shutting_down, context| {
                 thread::Builder::new()
@@ -180,6 +187,7 @@ impl ApiServer {
             object_deleter: parts.object_deleter,
             text_object_creator: parts.text_object_creator,
             object_duplicator: parts.object_duplicator,
+            media_object_creator: parts.media_object_creator,
         });
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
@@ -536,6 +544,19 @@ fn route(request: &HttpRequest, context: &ServerContext) -> HttpResponse {
                 duplicate_object(&request.body, context)
             }
         }
+        (Some("POST"), Some("/v1/scenes/current/objects/media")) => {
+            if !has_json_content_type(&request.head) {
+                api_error(
+                    "400 Bad Request",
+                    ErrorCode::InvalidRequest,
+                    "Content-Type must be application/json",
+                    false,
+                    None,
+                )
+            } else {
+                create_media_object(&request.body, context)
+            }
+        }
         (Some("GET"), _) => api_error(
             "404 Not Found",
             ErrorCode::RouteNotFound,
@@ -631,7 +652,9 @@ fn move_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             true,
             Some(RETRY_AFTER_SECONDS),
         ),
-        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
+        Ok(Err(
+            MutationError::InvalidPath | MutationError::ApplyFailed | MutationError::VerifyFailed,
+        )) => api_error(
             "500 Internal Server Error",
             ErrorCode::InternalError,
             "Move result could not be confirmed",
@@ -701,7 +724,9 @@ fn delete_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             true,
             Some(RETRY_AFTER_SECONDS),
         ),
-        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
+        Ok(Err(
+            MutationError::InvalidPath | MutationError::ApplyFailed | MutationError::VerifyFailed,
+        )) => api_error(
             "500 Internal Server Error",
             ErrorCode::InternalError,
             "Delete result could not be confirmed",
@@ -772,7 +797,9 @@ fn create_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             true,
             Some(RETRY_AFTER_SECONDS),
         ),
-        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
+        Ok(Err(
+            MutationError::InvalidPath | MutationError::ApplyFailed | MutationError::VerifyFailed,
+        )) => api_error(
             "500 Internal Server Error",
             ErrorCode::InternalError,
             "Text object result could not be confirmed",
@@ -842,10 +869,75 @@ fn duplicate_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             true,
             Some(RETRY_AFTER_SECONDS),
         ),
-        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
+        Ok(Err(
+            MutationError::InvalidPath | MutationError::ApplyFailed | MutationError::VerifyFailed,
+        )) => api_error(
             "500 Internal Server Error",
             ErrorCode::InternalError,
             "Duplicate result could not be confirmed",
+            false,
+            None,
+        ),
+        Err(EditorError::Busy) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorBusy,
+            "EditorGate is busy",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Err(EditorError::Unavailable) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+    }
+}
+
+fn create_media_object(body: &[u8], context: &ServerContext) -> HttpResponse {
+    let request = match serde_json::from_slice::<CreateMediaObjectRequest>(body) {
+        Ok(request) if request.length > 0 => request,
+        _ => {
+            return api_error(
+                "400 Bad Request",
+                ErrorCode::InvalidRequest,
+                "Invalid media object request",
+                false,
+                None,
+            );
+        }
+    };
+    match context
+        .editor_gate
+        .read(|| Ok((context.media_object_creator)(&request)))
+    {
+        Ok(Ok(response)) => json_response(&response),
+        Ok(Err(MutationError::InvalidPath)) => api_error(
+            "400 Bad Request",
+            ErrorCode::InvalidRequest,
+            "mediaPath must be an absolute path to an existing file",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::SceneConflict | MutationError::Validation(_))) => api_error(
+            "409 Conflict",
+            ErrorCode::StateConflict,
+            "Media object destination conflicts with current state",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::Unavailable)) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
+            "500 Internal Server Error",
+            ErrorCode::InternalError,
+            "Media object result could not be confirmed",
             false,
             None,
         ),
@@ -1228,6 +1320,75 @@ fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
 }
 
 #[cfg(windows)]
+fn platform_media_object_creator() -> Arc<MediaObjectCreator> {
+    Arc::new(|request| {
+        let media_path = std::path::Path::new(&request.media_path);
+        if !media_path.is_absolute() || !media_path.is_file() {
+            return Err(MutationError::InvalidPath);
+        }
+        if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+            return Err(MutationError::Unavailable);
+        }
+        let layer_max = crate::windows_plugin::EDIT_HANDLE.get_edit_info().layer_max;
+        crate::windows_plugin::EDIT_HANDLE
+            .call_edit_section(|section| {
+                let scene_name = section
+                    .get_scene_name()
+                    .map_err(|_| MutationError::Unavailable)?;
+                if scene_name != request.expected_scene_name {
+                    return Err(MutationError::SceneConflict);
+                }
+                let mut objects = Vec::new();
+                for layer in 0..=layer_max {
+                    for (position, handle) in section.objects_in_layer(layer) {
+                        objects.push(TimelineObject {
+                            layer: position.layer,
+                            start_frame: position.start,
+                            end_frame: position.end,
+                            name: section.get_object_name(handle).ok().flatten(),
+                        });
+                    }
+                }
+                let expected = crate::mutation::validate_create(
+                    &objects,
+                    request.layer,
+                    request.start_frame,
+                    request.length,
+                )
+                .map_err(MutationError::Validation)?;
+                let handle = section
+                    .create_object_from_media_file(
+                        media_path,
+                        request.layer,
+                        request.start_frame,
+                        Some(request.length),
+                    )
+                    .map_err(|_| MutationError::ApplyFailed)?;
+                let position = section
+                    .get_object_layer_frame(handle)
+                    .map_err(|_| MutationError::VerifyFailed)?;
+                if position.layer != expected.layer
+                    || position.start != expected.start_frame
+                    || position.end != expected.end_frame
+                {
+                    return Err(MutationError::VerifyFailed);
+                }
+                Ok(CreateMediaObjectResponse {
+                    object: TimelineObject {
+                        layer: position.layer,
+                        start_frame: position.start,
+                        end_frame: position.end,
+                        name: section
+                            .get_object_name(handle)
+                            .map_err(|_| MutationError::VerifyFailed)?,
+                    },
+                })
+            })
+            .map_err(|_| MutationError::Unavailable)?
+    })
+}
+
+#[cfg(windows)]
 fn write_object_observation(
     section: &aviutl2::generic::ReadSection,
     raw_scene_id: i32,
@@ -1295,6 +1456,11 @@ fn platform_text_object_creator() -> Arc<TextObjectCreator> {
 
 #[cfg(not(windows))]
 fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
+    Arc::new(|_| Err(MutationError::Unavailable))
+}
+
+#[cfg(not(windows))]
+fn platform_media_object_creator() -> Arc<MediaObjectCreator> {
     Arc::new(|_| Err(MutationError::Unavailable))
 }
 
@@ -1387,6 +1553,7 @@ mod tests {
                 object_deleter: Arc::new(deleter),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                media_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             |_, listener, shutting_down, context| {
                 thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
@@ -1455,6 +1622,37 @@ mod tests {
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(creator),
                 object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                media_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+            },
+            |_, listener, shutting_down, context| {
+                thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
+            },
+        )
+        .unwrap()
+    }
+
+    fn start_with_media_creator(
+        creator: impl Fn(
+            &aviutl2_ai_agent_protocol::CreateMediaObjectRequest,
+        ) -> Result<
+            aviutl2_ai_agent_protocol::CreateMediaObjectResponse,
+            super::MutationError,
+        > + Send
+        + Sync
+        + 'static,
+    ) -> ApiServer {
+        ApiServer::start_with_parts(
+            "127.0.0.1:0",
+            4,
+            ServerParts {
+                scene_reader: Arc::new(|| Ok(scene("Root", 0))),
+                timeline_reader: Arc::new(|| Ok(timeline())),
+                objects_reader: Arc::new(|| Ok(objects())),
+                object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                media_object_creator: Arc::new(creator),
             },
             |_, listener, shutting_down, context| {
                 thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
@@ -1674,6 +1872,42 @@ mod tests {
     }
 
     #[test]
+    fn create_media_endpoint_returns_verified_object() {
+        let server = start_with_media_creator(|request| {
+            Ok(aviutl2_ai_agent_protocol::CreateMediaObjectResponse {
+                object: aviutl2_ai_agent_protocol::TimelineObject {
+                    layer: request.layer,
+                    start_frame: request.start_frame,
+                    end_frame: request.start_frame + request.length - 1,
+                    name: Some("example.png".to_owned()),
+                },
+            })
+        });
+        let request = r#"{"expectedSceneName":"Root","mediaPath":"C:\\media\\example.png","layer":1,"startFrame":100,"length":90}"#;
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/media",
+            request,
+        );
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        let created: aviutl2_ai_agent_protocol::CreateMediaObjectResponse =
+            serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(created.object.end_frame, 189);
+    }
+
+    #[test]
+    fn create_media_endpoint_rejects_zero_length() {
+        let server = start_with_media_creator(|_| panic!("invalid request reached creator"));
+        let request = r#"{"expectedSceneName":"Root","mediaPath":"C:\\media\\example.png","layer":1,"startFrame":100,"length":0}"#;
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/media",
+            request,
+        );
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    }
+
+    #[test]
     fn move_endpoint_supports_expect_continue() {
         let server = start_with_mover(
             || Ok(scene("Root", 0)),
@@ -1781,6 +2015,7 @@ mod tests {
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                media_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             {
                 let accepted = Arc::clone(&accepted);
@@ -1853,6 +2088,7 @@ mod tests {
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                media_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             |index, listener, shutting_down, context| {
                 if index == 2 {

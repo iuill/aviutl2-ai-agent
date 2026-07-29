@@ -2,10 +2,10 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use aviutl2_ai_agent_protocol::{
-    ApiError, CreateTextObjectRequest, CreateTextObjectResponse, CurrentObjects, CurrentScene,
-    CurrentTimeline, DeleteObjectRequest, DeleteObjectResponse, DuplicateObjectRequest,
-    DuplicateObjectResponse, ErrorCode, Health, MoveObjectDestination, MoveObjectRequest,
-    MoveObjectResponse, Status, TimelineObject,
+    ApiError, CreateMediaObjectRequest, CreateMediaObjectResponse, CreateTextObjectRequest,
+    CreateTextObjectResponse, CurrentObjects, CurrentScene, CurrentTimeline, DeleteObjectRequest,
+    DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse, ErrorCode, Health,
+    MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status, TimelineObject,
 };
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
@@ -91,6 +91,19 @@ enum Command {
         destination_layer: usize,
         #[arg(long)]
         destination_start_frame: usize,
+    },
+    /// Create one media object from a caller-managed absolute Windows path.
+    CreateMedia {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        media_path: String,
+        #[arg(long)]
+        layer: usize,
+        #[arg(long)]
+        start_frame: usize,
+        #[arg(long)]
+        length: usize,
     },
 }
 
@@ -216,6 +229,24 @@ fn run(args: Args) -> Result<(), ClientError> {
                 },
             },
             "duplicate object",
+        )?),
+        Command::CreateMedia {
+            expected_scene_name,
+            media_path,
+            layer,
+            start_frame,
+            length,
+        } => serde_json::to_string_pretty(&post::<CreateMediaObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/media",
+            &CreateMediaObjectRequest {
+                expected_scene_name,
+                media_path,
+                layer,
+                start_frame,
+                length,
+            },
+            "create media object",
         )?),
     }
     .context("failed to serialize response")

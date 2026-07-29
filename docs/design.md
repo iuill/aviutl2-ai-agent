@@ -299,3 +299,15 @@ start frameを受け取ります。targetを一意に特定し、元objectを含
 作成後はlayer、frame範囲、nameを同じedit section内で読み返します。targetなしは
 not found、複数一致と移動先競合はconflictです。effectやmedia pathを含み得るaliasは
 内部値としてだけ扱い、HTTP responseやログへ出しません。
+
+## Phase 3単一media createの設計
+
+`POST /v1/scenes/current/objects/media` はimage/audio共通で、callerが管理するWindows
+絶対path、scene、layer、start frame、lengthを受け取ります。個人開発用途ではmedia
+rootを設けず、pathの選択責任はCodexなどのcallerが持ちます。pluginは絶対pathであり
+既存の通常ファイルであることだけ確認し、相対pathを拒否します。pathはresponse、
+ログ、エラーへ含めません。
+
+移動先範囲を検証してから`create_object_from_media_file`を1回だけ呼び、作成後の
+layerとframe範囲を同じedit section内で確認します。project保存や複数mediaの一括生成は
+行いません。

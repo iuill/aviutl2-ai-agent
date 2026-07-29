@@ -84,6 +84,17 @@ dist\aviutl2-agent.exe duplicate-object `
   --layer 1 --start-frame 100 --end-frame 189 `
   --destination-layer 2 --destination-start-frame 200
 ```
+
+image/audioはcallerが管理するWindows絶対pathから作成します。
+
+```powershell
+dist\aviutl2-agent.exe create-media `
+  --expected-scene-name Root `
+  --media-path "C:\media\example.png" `
+  --layer 1 --start-frame 100 --length 90
+```
+
+専用media rootによる制限はありません。相対pathと存在しないfileは拒否されます。
 6. AviUtl2 を終了して再起動し、手順3を繰り返します。再起動後も成功すれば、
    プロセス終了後にポート7890を再利用できることを確認できます。ただし、この
    手順だけでは `UninitializePlugin` 内で全workerのjoinが完了したことまでは
