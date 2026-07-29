@@ -37,28 +37,28 @@ enum Command {
         #[arg(long)]
         expected_scene_name: String,
         #[arg(long)]
-        layer: usize,
+        layer: u64,
         #[arg(long)]
-        start_frame: usize,
+        start_frame: u64,
         #[arg(long)]
-        end_frame: usize,
+        end_frame: u64,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
-        destination_layer: usize,
+        destination_layer: u64,
         #[arg(long)]
-        destination_start_frame: usize,
+        destination_start_frame: u64,
     },
     /// Delete one object identified by its complete current snapshot.
     DeleteObject {
         #[arg(long)]
         expected_scene_name: String,
         #[arg(long)]
-        layer: usize,
+        layer: u64,
         #[arg(long)]
-        start_frame: usize,
+        start_frame: u64,
         #[arg(long)]
-        end_frame: usize,
+        end_frame: u64,
         #[arg(long)]
         name: Option<String>,
     },
@@ -67,11 +67,11 @@ enum Command {
         #[arg(long)]
         expected_scene_name: String,
         #[arg(long)]
-        layer: usize,
+        layer: u64,
         #[arg(long)]
-        start_frame: usize,
+        start_frame: u64,
         #[arg(long)]
-        length: usize,
+        length: u64,
         #[arg(long)]
         text: String,
     },
@@ -80,17 +80,17 @@ enum Command {
         #[arg(long)]
         expected_scene_name: String,
         #[arg(long)]
-        layer: usize,
+        layer: u64,
         #[arg(long)]
-        start_frame: usize,
+        start_frame: u64,
         #[arg(long)]
-        end_frame: usize,
+        end_frame: u64,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
-        destination_layer: usize,
+        destination_layer: u64,
         #[arg(long)]
-        destination_start_frame: usize,
+        destination_start_frame: u64,
     },
     /// Create one media object from a caller-managed absolute Windows path.
     CreateMedia {
@@ -99,11 +99,11 @@ enum Command {
         #[arg(long)]
         media_path: String,
         #[arg(long)]
-        layer: usize,
+        layer: u64,
         #[arg(long)]
-        start_frame: usize,
+        start_frame: u64,
         #[arg(long)]
-        length: usize,
+        length: u64,
     },
 }
 

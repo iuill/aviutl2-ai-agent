@@ -34,12 +34,12 @@ pub struct CurrentScene {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CurrentTimeline {
-    pub width: usize,
-    pub height: usize,
+    pub width: u64,
+    pub height: u64,
     pub frame_rate: FrameRate,
-    pub cursor_frame: usize,
-    pub object_end_frame: usize,
-    pub highest_object_layer: usize,
+    pub cursor_frame: u64,
+    pub object_end_frame: u64,
+    pub highest_object_layer: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,9 +58,9 @@ pub struct CurrentObjects {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimelineObject {
-    pub layer: usize,
-    pub start_frame: usize,
-    pub end_frame: usize,
+    pub layer: u64,
+    pub start_frame: u64,
+    pub end_frame: u64,
     pub name: Option<String>,
 }
 
@@ -75,8 +75,8 @@ pub struct MoveObjectRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MoveObjectDestination {
-    pub layer: usize,
-    pub start_frame: usize,
+    pub layer: u64,
+    pub start_frame: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,9 +102,9 @@ pub struct DeleteObjectResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateTextObjectRequest {
     pub expected_scene_name: String,
-    pub layer: usize,
-    pub start_frame: usize,
-    pub length: usize,
+    pub layer: u64,
+    pub start_frame: u64,
+    pub length: u64,
     pub text: String,
 }
 
@@ -134,9 +134,9 @@ pub struct DuplicateObjectResponse {
 pub struct CreateMediaObjectRequest {
     pub expected_scene_name: String,
     pub media_path: String,
-    pub layer: usize,
-    pub start_frame: usize,
-    pub length: usize,
+    pub layer: u64,
+    pub start_frame: u64,
+    pub length: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,6 +161,7 @@ pub enum ErrorCode {
     EditorUnavailable,
     ObjectNotFound,
     StateConflict,
+    MutationOutcomeUnknown,
     InternalError,
 }
 

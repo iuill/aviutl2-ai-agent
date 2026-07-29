@@ -72,9 +72,9 @@ pub(crate) fn validate_move(
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn validate_create(
     objects: &[TimelineObject],
-    layer: usize,
-    start_frame: usize,
-    length: usize,
+    layer: u64,
+    start_frame: u64,
+    length: u64,
 ) -> Result<TimelineObject, MoveValidationError> {
     let end_frame = start_frame
         .checked_add(
@@ -122,7 +122,7 @@ pub(crate) fn validate_duplicate(
 mod tests {
     use super::*;
 
-    fn object(layer: usize, start_frame: usize, end_frame: usize) -> TimelineObject {
+    fn object(layer: u64, start_frame: u64, end_frame: u64) -> TimelineObject {
         TimelineObject {
             layer,
             start_frame,
@@ -201,7 +201,7 @@ mod tests {
                 &target,
                 &MoveObjectDestination {
                     layer: 0,
-                    start_frame: usize::MAX,
+                    start_frame: u64::MAX,
                 }
             ),
             Err(MoveValidationError::FrameOverflow)

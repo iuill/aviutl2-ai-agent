@@ -35,6 +35,8 @@ const API_VERSION: &str = "v1";
 const SCENE_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_SCENE_OBSERVATION_LOG";
 #[cfg(windows)]
 const OBJECT_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_OBJECT_OBSERVATION_LOG";
+#[cfg(windows)]
+const MUTATION_DEBUG_LOG_ENV: &str = "AVIUTL2_AI_AGENT_MUTATION_DEBUG_LOG";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SceneRead {
@@ -314,6 +316,8 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                     let body_deadline = Instant::now() + EXPECT_BODY_TIMEOUT;
                     if expects_continue(&head) && body.len() < content_length {
                         stream.set_read_timeout(Some(EXPECT_BODY_TIMEOUT)).ok()?;
+                        stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").ok()?;
+                        stream.flush().ok()?;
                     }
                     while body.len() < content_length {
                         match stream.read(&mut chunk) {
@@ -652,15 +656,14 @@ fn move_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             true,
             Some(RETRY_AFTER_SECONDS),
         ),
-        Ok(Err(
-            MutationError::InvalidPath | MutationError::ApplyFailed | MutationError::VerifyFailed,
-        )) => api_error(
+        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
             "500 Internal Server Error",
-            ErrorCode::InternalError,
-            "Move result could not be confirmed",
+            ErrorCode::MutationOutcomeUnknown,
+            "Move outcome is unknown; re-read current objects before continuing",
             false,
             None,
         ),
+        Ok(Err(MutationError::InvalidPath)) => internal_mutation_error(),
         Err(EditorError::Busy) => api_error(
             "503 Service Unavailable",
             ErrorCode::EditorBusy,
@@ -724,15 +727,14 @@ fn delete_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             true,
             Some(RETRY_AFTER_SECONDS),
         ),
-        Ok(Err(
-            MutationError::InvalidPath | MutationError::ApplyFailed | MutationError::VerifyFailed,
-        )) => api_error(
+        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
             "500 Internal Server Error",
-            ErrorCode::InternalError,
-            "Delete result could not be confirmed",
+            ErrorCode::MutationOutcomeUnknown,
+            "Delete outcome is unknown; re-read current objects before continuing",
             false,
             None,
         ),
+        Ok(Err(MutationError::InvalidPath)) => internal_mutation_error(),
         Err(EditorError::Busy) => api_error(
             "503 Service Unavailable",
             ErrorCode::EditorBusy,
@@ -797,15 +799,14 @@ fn create_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             true,
             Some(RETRY_AFTER_SECONDS),
         ),
-        Ok(Err(
-            MutationError::InvalidPath | MutationError::ApplyFailed | MutationError::VerifyFailed,
-        )) => api_error(
+        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
             "500 Internal Server Error",
-            ErrorCode::InternalError,
-            "Text object result could not be confirmed",
+            ErrorCode::MutationOutcomeUnknown,
+            "Text object outcome is unknown; re-read current objects before continuing",
             false,
             None,
         ),
+        Ok(Err(MutationError::InvalidPath)) => internal_mutation_error(),
         Err(EditorError::Busy) => api_error(
             "503 Service Unavailable",
             ErrorCode::EditorBusy,
@@ -869,15 +870,14 @@ fn duplicate_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             true,
             Some(RETRY_AFTER_SECONDS),
         ),
-        Ok(Err(
-            MutationError::InvalidPath | MutationError::ApplyFailed | MutationError::VerifyFailed,
-        )) => api_error(
+        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
             "500 Internal Server Error",
-            ErrorCode::InternalError,
-            "Duplicate result could not be confirmed",
+            ErrorCode::MutationOutcomeUnknown,
+            "Duplicate outcome is unknown; re-read current objects before continuing",
             false,
             None,
         ),
+        Ok(Err(MutationError::InvalidPath)) => internal_mutation_error(),
         Err(EditorError::Busy) => api_error(
             "503 Service Unavailable",
             ErrorCode::EditorBusy,
@@ -936,8 +936,8 @@ fn create_media_object(body: &[u8], context: &ServerContext) -> HttpResponse {
         ),
         Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
             "500 Internal Server Error",
-            ErrorCode::InternalError,
-            "Media object result could not be confirmed",
+            ErrorCode::MutationOutcomeUnknown,
+            "Media object outcome is unknown; re-read current objects before continuing",
             false,
             None,
         ),
@@ -956,6 +956,16 @@ fn create_media_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             Some(RETRY_AFTER_SECONDS),
         ),
     }
+}
+
+fn internal_mutation_error() -> HttpResponse {
+    api_error(
+        "500 Internal Server Error",
+        ErrorCode::InternalError,
+        "Plugin internal error",
+        false,
+        None,
+    )
 }
 
 fn api_error(
@@ -1028,17 +1038,28 @@ fn platform_timeline_reader() -> Arc<TimelineReader> {
             write_object_observation(section, info.scene_id, info.layer_max)
         });
         Ok(CurrentTimeline {
-            width: info.width,
-            height: info.height,
+            width: sdk_u64(info.width),
+            height: sdk_u64(info.height),
             frame_rate: FrameRate {
                 numerator: *info.fps.numer(),
                 denominator: *info.fps.denom(),
             },
-            cursor_frame: info.frame,
-            object_end_frame: info.frame_max,
-            highest_object_layer: info.layer_max,
+            cursor_frame: sdk_u64(info.frame),
+            object_end_frame: sdk_u64(info.frame_max),
+            highest_object_layer: sdk_u64(info.layer_max),
         })
     })
+}
+
+#[cfg(windows)]
+fn sdk_u64(value: usize) -> u64 {
+    u64::try_from(value).expect("Windows SDK usize must fit the public u64 contract")
+}
+
+#[cfg(windows)]
+fn sdk_usize(value: u64) -> Result<usize, MutationError> {
+    usize::try_from(value)
+        .map_err(|_| MutationError::Validation(MoveValidationError::FrameOverflow))
 }
 
 #[cfg(windows)]
@@ -1054,9 +1075,9 @@ fn platform_objects_reader() -> Arc<ObjectsReader> {
                 for layer in 0..=info.layer_max {
                     for (position, handle) in section.objects_in_layer(layer) {
                         objects.push(TimelineObject {
-                            layer: position.layer,
-                            start_frame: position.start,
-                            end_frame: position.end,
+                            layer: sdk_u64(position.layer),
+                            start_frame: sdk_u64(position.start),
+                            end_frame: sdk_u64(position.end),
                             name: section.get_object_name(handle).ok().flatten(),
                         });
                     }
@@ -1070,6 +1091,8 @@ fn platform_objects_reader() -> Arc<ObjectsReader> {
 #[cfg(windows)]
 fn platform_object_mover() -> Arc<ObjectMover> {
     Arc::new(|request| {
+        let destination_layer = sdk_usize(request.destination.layer)?;
+        let destination_start_frame = sdk_usize(request.destination.start_frame)?;
         if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
             return Err(MutationError::Unavailable);
         }
@@ -1089,9 +1112,9 @@ fn platform_object_mover() -> Arc<ObjectMover> {
                     for (position, handle) in section.objects_in_layer(layer) {
                         handles.push(handle);
                         objects.push(TimelineObject {
-                            layer: position.layer,
-                            start_frame: position.start,
-                            end_frame: position.end,
+                            layer: sdk_u64(position.layer),
+                            start_frame: sdk_u64(position.start),
+                            end_frame: sdk_u64(position.end),
                             name: section.get_object_name(handle).ok().flatten(),
                         });
                     }
@@ -1101,19 +1124,15 @@ fn platform_object_mover() -> Arc<ObjectMover> {
                         .map_err(MutationError::Validation)?;
                 let handle = handles[target_index];
                 section
-                    .move_object(
-                        handle,
-                        request.destination.layer,
-                        request.destination.start_frame,
-                    )
+                    .move_object(handle, destination_layer, destination_start_frame)
                     .map_err(|_| MutationError::ApplyFailed)?;
                 let position = section
                     .get_object_layer_frame(handle)
                     .map_err(|_| MutationError::VerifyFailed)?;
                 let actual = TimelineObject {
-                    layer: position.layer,
-                    start_frame: position.start,
-                    end_frame: position.end,
+                    layer: sdk_u64(position.layer),
+                    start_frame: sdk_u64(position.start),
+                    end_frame: sdk_u64(position.end),
                     name: section
                         .get_object_name(handle)
                         .map_err(|_| MutationError::VerifyFailed)?,
@@ -1158,9 +1177,9 @@ fn platform_object_deleter() -> Arc<ObjectDeleter> {
                     for (position, handle) in section.objects_in_layer(layer) {
                         handles.push(handle);
                         objects.push(TimelineObject {
-                            layer: position.layer,
-                            start_frame: position.start,
-                            end_frame: position.end,
+                            layer: sdk_u64(position.layer),
+                            start_frame: sdk_u64(position.start),
+                            end_frame: sdk_u64(position.end),
                             name: section.get_object_name(handle).ok().flatten(),
                         });
                     }
@@ -1185,6 +1204,9 @@ fn platform_object_deleter() -> Arc<ObjectDeleter> {
 #[cfg(windows)]
 fn platform_text_object_creator() -> Arc<TextObjectCreator> {
     Arc::new(|request| {
+        let layer = sdk_usize(request.layer)?;
+        let start_frame = sdk_usize(request.start_frame)?;
+        let length = sdk_usize(request.length)?;
         if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
             return Err(MutationError::Unavailable);
         }
@@ -1201,9 +1223,9 @@ fn platform_text_object_creator() -> Arc<TextObjectCreator> {
                 for layer in 0..=layer_max {
                     for (position, handle) in section.objects_in_layer(layer) {
                         objects.push(TimelineObject {
-                            layer: position.layer,
-                            start_frame: position.start,
-                            end_frame: position.end,
+                            layer: sdk_u64(position.layer),
+                            start_frame: sdk_u64(position.start),
+                            end_frame: sdk_u64(position.end),
                             name: section.get_object_name(handle).ok().flatten(),
                         });
                     }
@@ -1220,20 +1242,15 @@ fn platform_text_object_creator() -> Arc<TextObjectCreator> {
                     request.text
                 );
                 let handle = section
-                    .create_object_from_alias(
-                        &alias,
-                        request.layer,
-                        request.start_frame,
-                        request.length,
-                    )
+                    .create_object_from_alias(&alias, layer, start_frame, length)
                     .map_err(|_| MutationError::ApplyFailed)?;
                 let position = section
                     .get_object_layer_frame(handle)
                     .map_err(|_| MutationError::VerifyFailed)?;
                 let actual = TimelineObject {
-                    layer: position.layer,
-                    start_frame: position.start,
-                    end_frame: position.end,
+                    layer: sdk_u64(position.layer),
+                    start_frame: sdk_u64(position.start),
+                    end_frame: sdk_u64(position.end),
                     name: section
                         .get_object_name(handle)
                         .map_err(|_| MutationError::VerifyFailed)?,
@@ -1274,9 +1291,9 @@ fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
                     for (position, handle) in section.objects_in_layer(layer) {
                         handles.push(handle);
                         objects.push(TimelineObject {
-                            layer: position.layer,
-                            start_frame: position.start,
-                            end_frame: position.end,
+                            layer: sdk_u64(position.layer),
+                            start_frame: sdk_u64(position.start),
+                            end_frame: sdk_u64(position.end),
                             name: section.get_object_name(handle).ok().flatten(),
                         });
                     }
@@ -1291,16 +1308,19 @@ fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
                     .get_object_alias(handles[target_index])
                     .map_err(|_| MutationError::ApplyFailed)?;
                 let length = expected.end_frame - expected.start_frame + 1;
+                let layer = sdk_usize(expected.layer)?;
+                let start_frame = sdk_usize(expected.start_frame)?;
+                let length = sdk_usize(length)?;
                 let handle = section
-                    .create_object_from_alias(&alias, expected.layer, expected.start_frame, length)
+                    .create_object_from_alias(&alias, layer, start_frame, length)
                     .map_err(|_| MutationError::ApplyFailed)?;
                 let position = section
                     .get_object_layer_frame(handle)
                     .map_err(|_| MutationError::VerifyFailed)?;
                 let actual = TimelineObject {
-                    layer: position.layer,
-                    start_frame: position.start,
-                    end_frame: position.end,
+                    layer: sdk_u64(position.layer),
+                    start_frame: sdk_u64(position.start),
+                    end_frame: sdk_u64(position.end),
                     name: section
                         .get_object_name(handle)
                         .map_err(|_| MutationError::VerifyFailed)?,
@@ -1326,11 +1346,14 @@ fn platform_media_object_creator() -> Arc<MediaObjectCreator> {
         if !media_path.is_absolute() || !media_path.is_file() {
             return Err(MutationError::InvalidPath);
         }
+        let layer = sdk_usize(request.layer)?;
+        let start_frame = sdk_usize(request.start_frame)?;
+        let length = sdk_usize(request.length)?;
         if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
             return Err(MutationError::Unavailable);
         }
         let layer_max = crate::windows_plugin::EDIT_HANDLE.get_edit_info().layer_max;
-        crate::windows_plugin::EDIT_HANDLE
+        let result = crate::windows_plugin::EDIT_HANDLE
             .call_edit_section(|section| {
                 let scene_name = section
                     .get_scene_name()
@@ -1342,9 +1365,9 @@ fn platform_media_object_creator() -> Arc<MediaObjectCreator> {
                 for layer in 0..=layer_max {
                     for (position, handle) in section.objects_in_layer(layer) {
                         objects.push(TimelineObject {
-                            layer: position.layer,
-                            start_frame: position.start,
-                            end_frame: position.end,
+                            layer: sdk_u64(position.layer),
+                            start_frame: sdk_u64(position.start),
+                            end_frame: sdk_u64(position.end),
                             name: section.get_object_name(handle).ok().flatten(),
                         });
                     }
@@ -1357,35 +1380,54 @@ fn platform_media_object_creator() -> Arc<MediaObjectCreator> {
                 )
                 .map_err(MutationError::Validation)?;
                 let handle = section
-                    .create_object_from_media_file(
-                        media_path,
-                        request.layer,
-                        request.start_frame,
-                        Some(request.length),
-                    )
+                    .create_object_from_media_file(media_path, layer, start_frame, Some(length))
                     .map_err(|_| MutationError::ApplyFailed)?;
                 let position = section
                     .get_object_layer_frame(handle)
                     .map_err(|_| MutationError::VerifyFailed)?;
-                if position.layer != expected.layer
-                    || position.start != expected.start_frame
-                    || position.end != expected.end_frame
+                if sdk_u64(position.layer) != expected.layer
+                    || sdk_u64(position.start) != expected.start_frame
+                    || sdk_u64(position.end) != expected.end_frame
                 {
                     return Err(MutationError::VerifyFailed);
                 }
                 Ok(CreateMediaObjectResponse {
                     object: TimelineObject {
-                        layer: position.layer,
-                        start_frame: position.start,
-                        end_frame: position.end,
+                        layer: sdk_u64(position.layer),
+                        start_frame: sdk_u64(position.start),
+                        end_frame: sdk_u64(position.end),
                         name: section
                             .get_object_name(handle)
                             .map_err(|_| MutationError::VerifyFailed)?,
                     },
                 })
             })
-            .map_err(|_| MutationError::Unavailable)?
+            .map_err(|_| MutationError::Unavailable)?;
+        write_media_mutation_debug(media_path, &result);
+        result
     })
+}
+
+#[cfg(windows)]
+fn write_media_mutation_debug(
+    media_path: &std::path::Path,
+    result: &Result<CreateMediaObjectResponse, MutationError>,
+) {
+    let Ok(path) = std::env::var(MUTATION_DEBUG_LOG_ENV) else {
+        return;
+    };
+    let Some(file_name) = media_path.file_name() else {
+        return;
+    };
+    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let record = serde_json::json!({
+        "operation": "create_media",
+        "fileName": file_name.to_string_lossy(),
+        "outcome": if result.is_ok() { "succeeded" } else { "failed" },
+    });
+    let _ = writeln!(file, "{record}");
 }
 
 #[cfg(windows)]
@@ -1785,6 +1827,25 @@ mod tests {
     }
 
     #[test]
+    fn move_endpoint_marks_unconfirmed_outcome_for_reconciliation() {
+        let server = start_with_mover(
+            || Ok(scene("Root", 0)),
+            |_| Err(super::MutationError::VerifyFailed),
+        );
+        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/move",
+            request,
+        );
+        assert!(response.starts_with("HTTP/1.1 500 Internal Server Error\r\n"));
+        let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(error.code, ErrorCode::MutationOutcomeUnknown);
+        assert!(error.message.contains("re-read current objects"));
+        assert!(!error.retryable);
+    }
+
+    #[test]
     fn delete_endpoint_returns_deleted_snapshot() {
         let server = start_with_deleter(
             || Ok(scene("Root", 0)),
@@ -1922,7 +1983,9 @@ mod tests {
             body_text.len()
         )
         .unwrap();
-        thread::sleep(Duration::from_millis(300));
+        let mut interim = [0_u8; 25];
+        stream.read_exact(&mut interim).unwrap();
+        assert_eq!(&interim, b"HTTP/1.1 100 Continue\r\n\r\n");
         stream.write_all(body_text.as_bytes()).unwrap();
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
