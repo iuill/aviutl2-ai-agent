@@ -128,4 +128,12 @@ cargo run -p aviutl2-ai-agent-mcp
 
 別endpointを使うローカルtestでは `--endpoint` を指定できます。MCP toolはHTTP APIを
 迂回せず、現時点ではcurrent scene、current timeline、current object snapshotの
-readだけを公開します。
+readだけを公開します。公式Rust SDK `rmcp` がMCP `2026-07-28`とlegacy lifecycleの
+version negotiation、JSON-RPC error、notificationを処理します。unit testでは
+`server/discover`と`initialize`の両方を実際のstdio framingで検証します。
+
+## Mutation debug log
+
+Windowsで`AVIUTL2_AI_AGENT_MUTATION_DEBUG_LOG`に出力先を指定すると、media createの
+末尾file nameと成否をJSON Linesで記録します。full pathは記録しません。file nameにも
+個人情報が含まれ得るため、問題調査時だけ明示的に有効化してください。

@@ -74,6 +74,8 @@ current以外のsceneを明示するAPIは、sceneを安全に選択・列挙で
 HTTP/CLIのread契約を実利用で評価できる段階で、AviUtl2 process外のstdio serverとして
 追加します。最初はproject/scene、object、必要ならframeの最大3 toolに絞ります。
 MCPはpluginのvalidationを迂回せず、write toolを含めません。
+stdio transportは公式Rust SDKを使い、MCP `2026-07-28`とlegacy lifecycleを
+両方サポートします。
 
 完了条件:
 

@@ -56,6 +56,9 @@ Phase 1.5ではprocess外のstdio MCP serverを追加します。MCP toolはplug
 直接呼ばず、HTTP APIと同じvalidation、EditorGate、エラー境界を通ります。最初の
 toolは引数を持たない `get_current_scene`、`get_current_timeline`、
 `list_current_objects` に限定し、write toolは含めません。
+MCP wire処理は公式Rust SDKに委ね、`2026-07-28`の`server/discover` lifecycleと
+legacy `initialize` lifecycleの両方を受け付けます。tool schemaはJSON Schema
+2020-12としてSDKから生成し、独自JSON-RPC parserは持ちません。
 
 ## 実装境界
 
@@ -66,6 +69,8 @@ toolは引数を持たない `get_current_scene`、`get_current_timeline`、
   独立して保持し、plugin破棄中のworker joinとデッドロックさせない
 - SDKのhandle、enum、文字列所有権をHTTP DTOへ漏らさない
 - request DTOは未知fieldを拒否し、response DTOは加算的変更を許容する
+- frame、layer、画像サイズなどの非負整数は`u64`へ固定し、Rust build targetの
+  pointer幅へ依存させない。SDKの`usize`との変換はplugin境界で検証する
 - event callbackから `call_edit_section` を呼ばない
 - plugin破棄時はlistenerを閉じ、全workerをjoinしてから破棄を完了する
 - Windows未実測の挙動を保証済みと記述しない
@@ -257,7 +262,9 @@ Content-Type: application/json
 
 0件はnot found、複数件・scene不一致・snapshot変更・移動先競合はconflictとして
 mutation前に拒否します。frame計算overflowも拒否します。SDK error後のrollbackは
-行わず、verify失敗は結果不明として内部errorにします。Undo/Redo、project保存、
+行わず、apply errorまたはverify失敗は`mutation_outcome_unknown`として返します。
+callerは同じmutationを再送せず、current objectsを再読込して実状態を確認します。
+Undo/Redo、project保存、
 複数operation、raw handle指定は公開しません。
 
 ## Phase 3単一deleteの設計
@@ -305,8 +312,9 @@ not found、複数一致と移動先競合はconflictです。effectやmedia pat
 `POST /v1/scenes/current/objects/media` はimage/audio共通で、callerが管理するWindows
 絶対path、scene、layer、start frame、lengthを受け取ります。個人開発用途ではmedia
 rootを設けず、pathの選択責任はCodexなどのcallerが持ちます。pluginは絶対pathであり
-既存の通常ファイルであることだけ確認し、相対pathを拒否します。pathはresponse、
-ログ、エラーへ含めません。
+既存の通常ファイルであることだけ確認し、相対pathを拒否します。full pathはresponse、
+ログ、エラーへ含めません。明示的にdebug logを有効にした場合だけ、JSON escapeした
+末尾file nameと成否を記録します。
 
 移動先範囲を検証してから`create_object_from_media_file`を1回だけ呼び、作成後の
 layerとframe範囲を同じedit section内で確認します。project保存や複数mediaの一括生成は

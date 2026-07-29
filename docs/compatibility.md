@@ -221,3 +221,8 @@ effectと本文を含む内容が一致することを確認しました。UI Un
 requestどおり作成されました。相対pathは`invalid_request`の400、既存objectと重なる
 作成は`state_conflict`の409でした。UI Undo 1回で最後に作成したWAVだけが消え、
 PNGは残りました。fixture pathは文書・製品ログへ記録せず、検証後にAviUtl2を終了しました。
+
+MCP `2026-07-28`対応では公式Rust SDK `rmcp` 3.0.1へ移行し、Linuxのstdio integration
+testで`server/discover`とlegacy `initialize`の両lifecycleを確認しました。同SDKを含む
+Windows x64成果物は正規Docker buildで生成済みです。更新後のMCP binaryをWindowsで
+実行するnative runtime確認は未実施であり、cross-buildとは別の合格条件として扱います。

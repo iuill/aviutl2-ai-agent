@@ -21,7 +21,8 @@ cargo run -p aviutl2-ai-agent -- current-timeline
 cargo run -p aviutl2-ai-agent -- current-objects
 ```
 
-read-only MCP serverはstdioで起動します。
+read-only MCP serverはstdioで起動します。公式Rust SDKを使用し、MCP `2026-07-28`の
+`server/discover` lifecycleとlegacy `initialize` lifecycleをサポートします。
 
 ```bash
 cargo run -p aviutl2-ai-agent-mcp
