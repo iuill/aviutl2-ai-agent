@@ -1,7 +1,7 @@
 use std::{
     fs::OpenOptions,
     io::{Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
+    net::{Shutdown, SocketAddr, TcpListener, TcpStream},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -28,6 +28,7 @@ const MAX_REQUEST_HEAD: usize = 8 * 1024;
 const MAX_REQUEST_BODY: usize = 16 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_millis(250);
 const EXPECT_BODY_TIMEOUT: Duration = Duration::from_secs(2);
+const REJECT_CLOSE_GRACE: Duration = Duration::from_millis(50);
 const ACCEPT_POLL: Duration = Duration::from_millis(5);
 const EDITOR_GATE_TIMEOUT: Duration = Duration::from_millis(100);
 const RETRY_AFTER_SECONDS: u64 = 1;
@@ -321,6 +322,8 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                             None,
                         );
                         write_response(stream, &response);
+                        let _ = stream.shutdown(Shutdown::Write);
+                        thread::sleep(REJECT_CLOSE_GRACE);
                         return None;
                     }
                     let mut body = request[head_end..].to_vec();
