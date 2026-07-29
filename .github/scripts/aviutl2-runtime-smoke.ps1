@@ -67,6 +67,16 @@ $succeeded = $false
 $failure = $null
 $trustApprovals = 0
 $conflictTrustApprovals = 0
+$sceneObservationLogEnvironmentName = "AVIUTL2_AI_AGENT_SCENE_OBSERVATION_LOG"
+$previousSceneObservationLog = [Environment]::GetEnvironmentVariable(
+    $sceneObservationLogEnvironmentName,
+    "Process"
+)
+[Environment]::SetEnvironmentVariable(
+    $sceneObservationLogEnvironmentName,
+    (Join-Path $output "scene-observations.jsonl"),
+    "Process"
+)
 
 Add-Type -TypeDefinition @"
 using System;
@@ -292,11 +302,19 @@ try {
         throw "/healthz did not become ready within 45 seconds"
     }
 
-    $statusOutput = & $cli status 2>&1 | Out-String
-    $statusExitCode = $LASTEXITCODE
+    $statusDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $statusResult = Invoke-CliCapture -Arguments @("status")
+        $statusOutput = $statusResult.Output
+        $statusExitCode = $statusResult.ExitCode
+        if ($statusExitCode -ne 0 -and [DateTime]::UtcNow -lt $statusDeadline) {
+            Start-Sleep -Milliseconds 250
+        }
+    } while ($statusExitCode -ne 0 -and [DateTime]::UtcNow -lt $statusDeadline)
+
     $statusOutput | Set-Content -Encoding utf8 (Join-Path $output "status.json")
     if ($statusExitCode -ne 0) {
-        throw "status failed with exit code $statusExitCode"
+        throw "status did not become ready within 15 seconds"
     }
 
     $sceneDeadline = [DateTime]::UtcNow.AddSeconds(15)
@@ -600,6 +618,12 @@ finally {
         Select-Object State, LocalAddress, LocalPort, OwningProcess |
         ConvertTo-Json |
         Set-Content -Encoding utf8 (Join-Path $output "port-7890.json")
+
+    [Environment]::SetEnvironmentVariable(
+        $sceneObservationLogEnvironmentName,
+        $previousSceneObservationLog,
+        "Process"
+    )
 }
 
 if (-not $succeeded) {
