@@ -309,6 +309,16 @@ dialogの種類は未記録です。タイムラインのドラッグ中、出�
 読み取れることは確認しました。変更を通知するevent、callbackのthread、
 同期／非同期性、重複・欠落、handleの無効化・再利用は未検証です。
 
+2026-07-29にWindows Server 2025とAviUtl2 2.1.2でevent診断ログを有効にし、
+空のRootで起動とport競合用の再起動を観測しました。各起動で `project_load` の直後に
+`change_edit_scene` が発火し、同一起動内では互いに異なるRust thread IDでした。
+event callbackではevent種別、時刻、threadだけを記録し、read/edit sectionは
+呼びませんでした。
+
+同じbuildでcurrent timelineを読む際に、read section内でlayerごとのobjectを走査して
+所有データへコピーできました。空のRootではobject配列は空でした。object作成・更新・
+削除時のevent、handle再利用、重複・欠落は引き続き未検証です。
+
 ## Q6 — Linux から Windows へのビルド
 
 状態：**完了（Phase 0範囲）**

@@ -67,18 +67,27 @@ $succeeded = $false
 $failure = $null
 $trustApprovals = 0
 $conflictTrustApprovals = 0
-$sceneObservationLogEnvironmentName = "AVIUTL2_AI_AGENT_SCENE_OBSERVATION_LOG"
-$previousSceneObservationLog = [Environment]::GetEnvironmentVariable(
-    $sceneObservationLogEnvironmentName,
-    "Process"
-)
-[Environment]::SetEnvironmentVariable(
-    $sceneObservationLogEnvironmentName,
-    (Join-Path $output "scene-observations.jsonl"),
-    "Process"
-)
+$observationLogs = [ordered]@{
+    AVIUTL2_AI_AGENT_SCENE_OBSERVATION_LOG = "scene-observations.jsonl"
+    AVIUTL2_AI_AGENT_EVENT_OBSERVATION_LOG = "event-observations.jsonl"
+    AVIUTL2_AI_AGENT_OBJECT_OBSERVATION_LOG = "object-observations.jsonl"
+}
+$previousObservationLogs = @{}
+foreach ($environmentName in $observationLogs.Keys) {
+    $previousObservationLogs[$environmentName] = [Environment]::GetEnvironmentVariable(
+        $environmentName,
+        "Process"
+    )
+    [Environment]::SetEnvironmentVariable(
+        $environmentName,
+        (Join-Path $output $observationLogs[$environmentName]),
+        "Process"
+    )
+}
 @(
     "scene-observations.jsonl",
+    "event-observations.jsonl",
+    "object-observations.jsonl",
     "plugin-lifecycle.jsonl",
     "port-conflict-plugin-lifecycle.jsonl"
 ) | ForEach-Object {
@@ -332,16 +341,22 @@ try {
         $sceneResult = Invoke-CliCapture -Arguments @("current-scene")
         $sceneOutput = $sceneResult.Output
         $sceneExitCode = $sceneResult.ExitCode
-        if ($sceneExitCode -eq 3 -and [DateTime]::UtcNow -lt $sceneDeadline) {
+        if ($sceneExitCode -ne 0 -and [DateTime]::UtcNow -lt $sceneDeadline) {
             Start-Sleep -Milliseconds 250
         }
-    } while ($sceneExitCode -eq 3 -and [DateTime]::UtcNow -lt $sceneDeadline)
+    } while ($sceneExitCode -ne 0 -and [DateTime]::UtcNow -lt $sceneDeadline)
     $sceneOutput | Set-Content -Encoding utf8 (Join-Path $output "current-scene.json")
     if ($sceneExitCode -ne 0) {
         throw "current-scene failed with exit code $sceneExitCode"
     }
 
-    $timelineResult = Invoke-CliCapture -Arguments @("current-timeline")
+    $timelineDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $timelineResult = Invoke-CliCapture -Arguments @("current-timeline")
+        if ($timelineResult.ExitCode -ne 0 -and [DateTime]::UtcNow -lt $timelineDeadline) {
+            Start-Sleep -Milliseconds 250
+        }
+    } while ($timelineResult.ExitCode -ne 0 -and [DateTime]::UtcNow -lt $timelineDeadline)
     $timelineResult.Output |
         Set-Content -Encoding utf8 (Join-Path $output "current-timeline.json")
     if ($timelineResult.ExitCode -ne 0) {
@@ -636,11 +651,13 @@ finally {
         ConvertTo-Json |
         Set-Content -Encoding utf8 (Join-Path $output "port-7890.json")
 
-    [Environment]::SetEnvironmentVariable(
-        $sceneObservationLogEnvironmentName,
-        $previousSceneObservationLog,
-        "Process"
-    )
+    foreach ($environmentName in $observationLogs.Keys) {
+        [Environment]::SetEnvironmentVariable(
+            $environmentName,
+            $previousObservationLogs[$environmentName],
+            "Process"
+        )
+    }
 }
 
 if (-not $succeeded) {

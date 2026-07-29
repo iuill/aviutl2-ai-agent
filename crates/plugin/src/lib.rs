@@ -19,6 +19,7 @@ mod windows_plugin {
     use crate::ApiServer;
 
     const LIFECYCLE_LOG_ENV: &str = "AVIUTL2_AI_AGENT_PHASE1_LIFECYCLE_LOG";
+    const EVENT_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_EVENT_OBSERVATION_LOG";
 
     pub(super) static EDIT_HANDLE: GlobalEditHandle = GlobalEditHandle::new();
 
@@ -64,6 +65,26 @@ mod windows_plugin {
         fn register(&mut self, registry: &mut HostAppHandle) {
             EDIT_HANDLE.init(registry.create_edit_handle());
         }
+
+        fn on_project_load(&mut self, _project: &mut aviutl2::generic::ProjectFile) {
+            write_observation_event("project_load");
+        }
+
+        fn event_update_object_info(&mut self) {
+            write_observation_event("update_object");
+        }
+
+        fn event_change_edit_frame(&mut self) {
+            write_observation_event("change_edit_frame");
+        }
+
+        fn event_change_scene_info(&mut self) {
+            write_observation_event("change_edit_scene");
+        }
+
+        fn event_change_focus_object(&mut self) {
+            write_observation_event("change_focus_object");
+        }
     }
 
     impl Drop for AgentPlugin {
@@ -108,6 +129,25 @@ mod windows_plugin {
         if let Some(error) = error {
             record["error"] = error.into();
         }
+        let _ = writeln!(file, "{record}");
+    }
+
+    fn write_observation_event(event: &str) {
+        let Ok(path) = std::env::var(EVENT_OBSERVATION_LOG_ENV) else {
+            return;
+        };
+        let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
+            return;
+        };
+        let timestamp_millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default();
+        let record = json!({
+            "event": event,
+            "timestampMillis": timestamp_millis,
+            "thread": format!("{:?}", std::thread::current().id()),
+        });
         let _ = writeln!(file, "{record}");
     }
 

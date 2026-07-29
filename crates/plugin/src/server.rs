@@ -25,6 +25,8 @@ const EDITOR_GATE_TIMEOUT: Duration = Duration::from_millis(100);
 const RETRY_AFTER_SECONDS: u64 = 1;
 const API_VERSION: &str = "v1";
 const SCENE_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_SCENE_OBSERVATION_LOG";
+#[cfg(windows)]
+const OBJECT_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_OBJECT_OBSERVATION_LOG";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SceneRead {
@@ -430,6 +432,9 @@ fn platform_timeline_reader() -> Arc<TimelineReader> {
             return Err(EditorError::Unavailable);
         }
         let info = crate::windows_plugin::EDIT_HANDLE.get_edit_info();
+        let _ = crate::windows_plugin::EDIT_HANDLE.call_read_section(|section| {
+            write_object_observation(section, info.scene_id, info.layer_max)
+        });
         Ok(CurrentTimeline {
             width: info.width,
             height: info.height,
@@ -442,6 +447,42 @@ fn platform_timeline_reader() -> Arc<TimelineReader> {
             highest_object_layer: info.layer_max,
         })
     })
+}
+
+#[cfg(windows)]
+fn write_object_observation(
+    section: &aviutl2::generic::ReadSection,
+    raw_scene_id: i32,
+    layer_max: usize,
+) {
+    let Ok(path) = std::env::var(OBJECT_OBSERVATION_LOG_ENV) else {
+        return;
+    };
+    let mut objects = Vec::new();
+    for layer in 0..=layer_max {
+        for (position, handle) in section.objects_in_layer(layer) {
+            objects.push(serde_json::json!({
+                "handle": format!("{handle:?}"),
+                "layer": position.layer,
+                "start": position.start,
+                "end": position.end,
+                "name": section.get_object_name(handle).ok().flatten(),
+            }));
+        }
+    }
+    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let timestamp_millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let record = serde_json::json!({
+        "timestampMillis": timestamp_millis,
+        "rawSceneId": raw_scene_id,
+        "objects": objects,
+    });
+    let _ = writeln!(file, "{record}");
 }
 
 #[cfg(not(windows))]

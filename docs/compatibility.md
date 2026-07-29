@@ -70,6 +70,10 @@ scene削除後のID再利用は未確認であり、IDは公開APIに含めて�
 同じbuildのstdio MCP serverから `get_current_timeline` を呼び、pluginのloopback APIを
 経由して同じtimeline概要を取得できることも確認しました。
 
+event診断を有効にしたbuildでは、起動時に `project_load` と `change_edit_scene` が
+別threadから連続して通知されました。空のRootに対するobject走査は空配列を返しました。
+callback内ではSDK read/editを呼ばず、診断値の記録だけを行いました。
+
 ## 2026-07-28 port 7890競合時の観測
 
 最初に、port 7890を先に占有し、plugin初期化からbind errorを返す実装を
