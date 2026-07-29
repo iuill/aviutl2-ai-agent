@@ -3,8 +3,9 @@ use std::process::ExitCode;
 use anyhow::Context;
 use aviutl2_ai_agent_protocol::{
     ApiError, CreateTextObjectRequest, CreateTextObjectResponse, CurrentObjects, CurrentScene,
-    CurrentTimeline, DeleteObjectRequest, DeleteObjectResponse, ErrorCode, Health,
-    MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status, TimelineObject,
+    CurrentTimeline, DeleteObjectRequest, DeleteObjectResponse, DuplicateObjectRequest,
+    DuplicateObjectResponse, ErrorCode, Health, MoveObjectDestination, MoveObjectRequest,
+    MoveObjectResponse, Status, TimelineObject,
 };
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
@@ -73,6 +74,23 @@ enum Command {
         length: usize,
         #[arg(long)]
         text: String,
+    },
+    /// Duplicate one object at a non-overlapping destination.
+    DuplicateObject {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        layer: usize,
+        #[arg(long)]
+        start_frame: usize,
+        #[arg(long)]
+        end_frame: usize,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        destination_layer: usize,
+        #[arg(long)]
+        destination_start_frame: usize,
     },
 }
 
@@ -172,6 +190,32 @@ fn run(args: Args) -> Result<(), ClientError> {
                 text,
             },
             "create text object",
+        )?),
+        Command::DuplicateObject {
+            expected_scene_name,
+            layer,
+            start_frame,
+            end_frame,
+            name,
+            destination_layer,
+            destination_start_frame,
+        } => serde_json::to_string_pretty(&post::<DuplicateObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/duplicate",
+            &DuplicateObjectRequest {
+                expected_scene_name,
+                target: TimelineObject {
+                    layer,
+                    start_frame,
+                    end_frame,
+                    name,
+                },
+                destination: MoveObjectDestination {
+                    layer: destination_layer,
+                    start_frame: destination_start_frame,
+                },
+            },
+            "duplicate object",
         )?),
     }
     .context("failed to serialize response")

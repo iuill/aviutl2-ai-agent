@@ -288,3 +288,14 @@ CR、LF、NULを含むtextを拒否します。length 0、frame overflow、同�
 作成後は同じedit section内でlayer、frame範囲、nameと本文を読み返し、すべて一致した
 場合だけ`{"object": <snapshot>, "text": <本文>}`を返します。object名変更、装飾、
 複数object生成は別mutationになるため、このendpointには含めません。
+
+## Phase 3単一duplicateの設計
+
+`POST /v1/scenes/current/objects/duplicate` は完全なtarget snapshotと移動先layer、
+start frameを受け取ります。targetを一意に特定し、元objectを含む既存objectとの
+移動先競合を検証した後、SDKから取得したaliasを外部へ返さず
+`create_object_from_alias`を1回だけ呼びます。
+
+作成後はlayer、frame範囲、nameを同じedit section内で読み返します。targetなしは
+not found、複数一致と移動先競合はconflictです。effectやmedia pathを含み得るaliasは
+内部値としてだけ扱い、HTTP responseやログへ出しません。

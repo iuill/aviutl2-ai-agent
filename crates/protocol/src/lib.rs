@@ -116,6 +116,20 @@ pub struct CreateTextObjectResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DuplicateObjectRequest {
+    pub expected_scene_name: String,
+    pub target: TimelineObject,
+    pub destination: MoveObjectDestination,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateObjectResponse {
+    pub object: TimelineObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
     pub code: ErrorCode,
     pub message: String,

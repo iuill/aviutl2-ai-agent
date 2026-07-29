@@ -96,6 +96,28 @@ pub(crate) fn validate_create(
     })
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn validate_duplicate(
+    objects: &[TimelineObject],
+    target: &TimelineObject,
+    destination: &MoveObjectDestination,
+) -> Result<(usize, TimelineObject), MoveValidationError> {
+    let target_index = locate_exact(objects, target)?;
+    let length = target
+        .end_frame
+        .checked_sub(target.start_frame)
+        .and_then(|difference| difference.checked_add(1))
+        .ok_or(MoveValidationError::FrameOverflow)?;
+    let duplicate = validate_create(objects, destination.layer, destination.start_frame, length)?;
+    Ok((
+        target_index,
+        TimelineObject {
+            name: target.name.clone(),
+            ..duplicate
+        },
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +225,33 @@ mod tests {
         );
         assert_eq!(
             validate_create(&[object(1, 129, 150)], 1, 100, 30),
+            Err(MoveValidationError::DestinationOccupied)
+        );
+    }
+
+    #[test]
+    fn validates_duplicate_target_and_destination() {
+        let target = object(0, 10, 39);
+        let (index, duplicate) = validate_duplicate(
+            std::slice::from_ref(&target),
+            &target,
+            &MoveObjectDestination {
+                layer: 1,
+                start_frame: 100,
+            },
+        )
+        .unwrap();
+        assert_eq!(index, 0);
+        assert_eq!(duplicate, object(1, 100, 129));
+        assert_eq!(
+            validate_duplicate(
+                std::slice::from_ref(&target),
+                &target,
+                &MoveObjectDestination {
+                    layer: 0,
+                    start_frame: 20,
+                },
+            ),
             Err(MoveValidationError::DestinationOccupied)
         );
     }

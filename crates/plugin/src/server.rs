@@ -12,8 +12,9 @@ use std::{
 
 use aviutl2_ai_agent_protocol::{
     ApiError, CreateTextObjectRequest, CreateTextObjectResponse, CurrentObjects, CurrentScene,
-    CurrentTimeline, DeleteObjectRequest, DeleteObjectResponse, ErrorCode, Health, HealthStatus,
-    MoveObjectRequest, MoveObjectResponse, Status,
+    CurrentTimeline, DeleteObjectRequest, DeleteObjectResponse, DuplicateObjectRequest,
+    DuplicateObjectResponse, ErrorCode, Health, HealthStatus, MoveObjectRequest,
+    MoveObjectResponse, Status,
 };
 #[cfg(windows)]
 use aviutl2_ai_agent_protocol::{FrameRate, TimelineObject};
@@ -51,6 +52,8 @@ type ObjectDeleter =
 type TextObjectCreator = dyn Fn(&CreateTextObjectRequest) -> Result<CreateTextObjectResponse, MutationError>
     + Send
     + Sync;
+type ObjectDuplicator =
+    dyn Fn(&DuplicateObjectRequest) -> Result<DuplicateObjectResponse, MutationError> + Send + Sync;
 
 struct ServerParts {
     scene_reader: Arc<SceneReader>,
@@ -59,6 +62,7 @@ struct ServerParts {
     object_mover: Arc<ObjectMover>,
     object_deleter: Arc<ObjectDeleter>,
     text_object_creator: Arc<TextObjectCreator>,
+    object_duplicator: Arc<ObjectDuplicator>,
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -93,6 +97,7 @@ struct ServerContext {
     object_mover: Arc<ObjectMover>,
     object_deleter: Arc<ObjectDeleter>,
     text_object_creator: Arc<TextObjectCreator>,
+    object_duplicator: Arc<ObjectDuplicator>,
 }
 
 /// Loopback HTTP server whose threads and SDK access gate are owned here.
@@ -123,6 +128,7 @@ impl ApiServer {
                 object_mover: platform_object_mover(),
                 object_deleter: platform_object_deleter(),
                 text_object_creator: platform_text_object_creator(),
+                object_duplicator: platform_object_duplicator(),
             },
             |index, listener, shutting_down, context| {
                 thread::Builder::new()
@@ -173,6 +179,7 @@ impl ApiServer {
             object_mover: parts.object_mover,
             object_deleter: parts.object_deleter,
             text_object_creator: parts.text_object_creator,
+            object_duplicator: parts.object_duplicator,
         });
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
@@ -516,6 +523,19 @@ fn route(request: &HttpRequest, context: &ServerContext) -> HttpResponse {
                 create_text_object(&request.body, context)
             }
         }
+        (Some("POST"), Some("/v1/scenes/current/objects/duplicate")) => {
+            if !has_json_content_type(&request.head) {
+                api_error(
+                    "400 Bad Request",
+                    ErrorCode::InvalidRequest,
+                    "Content-Type must be application/json",
+                    false,
+                    None,
+                )
+            } else {
+                duplicate_object(&request.body, context)
+            }
+        }
         (Some("GET"), _) => api_error(
             "404 Not Found",
             ErrorCode::RouteNotFound,
@@ -776,6 +796,76 @@ fn create_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
     }
 }
 
+fn duplicate_object(body: &[u8], context: &ServerContext) -> HttpResponse {
+    let request = match serde_json::from_slice::<DuplicateObjectRequest>(body) {
+        Ok(request) => request,
+        Err(_) => {
+            return api_error(
+                "400 Bad Request",
+                ErrorCode::InvalidRequest,
+                "Invalid duplicate request",
+                false,
+                None,
+            );
+        }
+    };
+    match context
+        .editor_gate
+        .read(|| Ok((context.object_duplicator)(&request)))
+    {
+        Ok(Ok(response)) => json_response(&response),
+        Ok(Err(MutationError::SceneConflict)) => api_error(
+            "409 Conflict",
+            ErrorCode::StateConflict,
+            "Current scene does not match the request",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::Validation(MoveValidationError::TargetNotFound))) => api_error(
+            "404 Not Found",
+            ErrorCode::ObjectNotFound,
+            "Target object was not found",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::Validation(_))) => api_error(
+            "409 Conflict",
+            ErrorCode::StateConflict,
+            "Object snapshot or destination conflicts with current state",
+            false,
+            None,
+        ),
+        Ok(Err(MutationError::Unavailable)) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Ok(Err(MutationError::ApplyFailed | MutationError::VerifyFailed)) => api_error(
+            "500 Internal Server Error",
+            ErrorCode::InternalError,
+            "Duplicate result could not be confirmed",
+            false,
+            None,
+        ),
+        Err(EditorError::Busy) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorBusy,
+            "EditorGate is busy",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+        Err(EditorError::Unavailable) => api_error(
+            "503 Service Unavailable",
+            ErrorCode::EditorUnavailable,
+            "AviUtl2 did not accept the edit",
+            true,
+            Some(RETRY_AFTER_SECONDS),
+        ),
+    }
+}
+
 fn api_error(
     status: &'static str,
     code: ErrorCode,
@@ -946,6 +1036,15 @@ fn platform_object_mover() -> Arc<ObjectMover> {
 }
 
 #[cfg(windows)]
+fn alias_without_frame(alias: &str) -> String {
+    alias
+        .lines()
+        .filter(|line| !line.starts_with("frame="))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(windows)]
 fn platform_object_deleter() -> Arc<ObjectDeleter> {
     Arc::new(|request| {
         if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
@@ -1063,6 +1162,72 @@ fn platform_text_object_creator() -> Arc<TextObjectCreator> {
 }
 
 #[cfg(windows)]
+fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
+    Arc::new(|request| {
+        if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+            return Err(MutationError::Unavailable);
+        }
+        let layer_max = crate::windows_plugin::EDIT_HANDLE.get_edit_info().layer_max;
+        crate::windows_plugin::EDIT_HANDLE
+            .call_edit_section(|section| {
+                let scene_name = section
+                    .get_scene_name()
+                    .map_err(|_| MutationError::Unavailable)?;
+                if scene_name != request.expected_scene_name {
+                    return Err(MutationError::SceneConflict);
+                }
+                let mut handles = Vec::new();
+                let mut objects = Vec::new();
+                for layer in 0..=layer_max {
+                    for (position, handle) in section.objects_in_layer(layer) {
+                        handles.push(handle);
+                        objects.push(TimelineObject {
+                            layer: position.layer,
+                            start_frame: position.start,
+                            end_frame: position.end,
+                            name: section.get_object_name(handle).ok().flatten(),
+                        });
+                    }
+                }
+                let (target_index, expected) = crate::mutation::validate_duplicate(
+                    &objects,
+                    &request.target,
+                    &request.destination,
+                )
+                .map_err(MutationError::Validation)?;
+                let alias = section
+                    .get_object_alias(handles[target_index])
+                    .map_err(|_| MutationError::ApplyFailed)?;
+                let length = expected.end_frame - expected.start_frame + 1;
+                let handle = section
+                    .create_object_from_alias(&alias, expected.layer, expected.start_frame, length)
+                    .map_err(|_| MutationError::ApplyFailed)?;
+                let position = section
+                    .get_object_layer_frame(handle)
+                    .map_err(|_| MutationError::VerifyFailed)?;
+                let actual = TimelineObject {
+                    layer: position.layer,
+                    start_frame: position.start,
+                    end_frame: position.end,
+                    name: section
+                        .get_object_name(handle)
+                        .map_err(|_| MutationError::VerifyFailed)?,
+                };
+                let duplicate_alias = section
+                    .get_object_alias(handle)
+                    .map_err(|_| MutationError::VerifyFailed)?;
+                if actual != expected
+                    || alias_without_frame(&duplicate_alias) != alias_without_frame(&alias)
+                {
+                    return Err(MutationError::VerifyFailed);
+                }
+                Ok(DuplicateObjectResponse { object: actual })
+            })
+            .map_err(|_| MutationError::Unavailable)?
+    })
+}
+
+#[cfg(windows)]
 fn write_object_observation(
     section: &aviutl2::generic::ReadSection,
     raw_scene_id: i32,
@@ -1125,6 +1290,11 @@ fn platform_object_deleter() -> Arc<ObjectDeleter> {
 
 #[cfg(not(windows))]
 fn platform_text_object_creator() -> Arc<TextObjectCreator> {
+    Arc::new(|_| Err(MutationError::Unavailable))
+}
+
+#[cfg(not(windows))]
+fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
     Arc::new(|_| Err(MutationError::Unavailable))
 }
 
@@ -1216,6 +1386,7 @@ mod tests {
                 object_mover: Arc::new(mover),
                 object_deleter: Arc::new(deleter),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             |_, listener, shutting_down, context| {
                 thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
@@ -1283,6 +1454,7 @@ mod tests {
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(creator),
+                object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             |_, listener, shutting_down, context| {
                 thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
@@ -1608,6 +1780,7 @@ mod tests {
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             {
                 let accepted = Arc::clone(&accepted);
@@ -1679,6 +1852,7 @@ mod tests {
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
             },
             |index, listener, shutting_down, context| {
                 if index == 2 {
