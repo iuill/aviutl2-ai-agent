@@ -10,11 +10,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(windows)]
-use aviutl2_ai_agent_protocol::FrameRate;
 use aviutl2_ai_agent_protocol::{
-    ApiError, CurrentScene, CurrentTimeline, ErrorCode, Health, HealthStatus, Status,
+    ApiError, CurrentObjects, CurrentScene, CurrentTimeline, ErrorCode, Health, HealthStatus,
+    Status,
 };
+#[cfg(windows)]
+use aviutl2_ai_agent_protocol::{FrameRate, TimelineObject};
 
 use crate::editor::{EditorError, EditorGate};
 
@@ -36,6 +37,7 @@ struct SceneRead {
 
 type SceneReader = dyn Fn() -> Result<SceneRead, EditorError> + Send + Sync;
 type TimelineReader = dyn Fn() -> Result<CurrentTimeline, EditorError> + Send + Sync;
+type ObjectsReader = dyn Fn() -> Result<CurrentObjects, EditorError> + Send + Sync;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
@@ -55,6 +57,7 @@ struct ServerContext {
     editor_gate: EditorGate,
     scene_reader: Arc<SceneReader>,
     timeline_reader: Arc<TimelineReader>,
+    objects_reader: Arc<ObjectsReader>,
 }
 
 /// Loopback HTTP server whose threads and SDK access gate are owned here.
@@ -80,6 +83,7 @@ impl ApiServer {
             worker_count,
             platform_scene_reader(),
             platform_timeline_reader(),
+            platform_objects_reader(),
             |index, listener, shutting_down, context| {
                 thread::Builder::new()
                     .name(format!("aviutl2-ai-agent-http-{index}"))
@@ -93,6 +97,7 @@ impl ApiServer {
         worker_count: usize,
         scene_reader: Arc<SceneReader>,
         timeline_reader: Arc<TimelineReader>,
+        objects_reader: Arc<ObjectsReader>,
         mut spawn_worker: F,
     ) -> Result<Self, ServerError>
     where
@@ -126,6 +131,7 @@ impl ApiServer {
             editor_gate: EditorGate::new(EDITOR_GATE_TIMEOUT),
             scene_reader,
             timeline_reader,
+            objects_reader,
         });
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
@@ -339,6 +345,25 @@ fn route(request: &str, context: &ServerContext) -> HttpResponse {
                 ),
             }
         }
+        Some("/v1/scenes/current/objects") => {
+            match context.editor_gate.read(|| (context.objects_reader)()) {
+                Ok(objects) => json_response(&objects),
+                Err(EditorError::Busy) => api_error(
+                    "503 Service Unavailable",
+                    ErrorCode::EditorBusy,
+                    "EditorGate is busy",
+                    true,
+                    Some(RETRY_AFTER_SECONDS),
+                ),
+                Err(EditorError::Unavailable) => api_error(
+                    "503 Service Unavailable",
+                    ErrorCode::EditorUnavailable,
+                    "AviUtl2 did not accept the read",
+                    true,
+                    Some(RETRY_AFTER_SECONDS),
+                ),
+            }
+        }
         _ => api_error(
             "404 Not Found",
             ErrorCode::RouteNotFound,
@@ -450,6 +475,32 @@ fn platform_timeline_reader() -> Arc<TimelineReader> {
 }
 
 #[cfg(windows)]
+fn platform_objects_reader() -> Arc<ObjectsReader> {
+    Arc::new(|| {
+        if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+            return Err(EditorError::Unavailable);
+        }
+        let info = crate::windows_plugin::EDIT_HANDLE.get_edit_info();
+        crate::windows_plugin::EDIT_HANDLE
+            .call_read_section(|section| {
+                let mut objects = Vec::new();
+                for layer in 0..=info.layer_max {
+                    for (position, handle) in section.objects_in_layer(layer) {
+                        objects.push(TimelineObject {
+                            layer: position.layer,
+                            start_frame: position.start,
+                            end_frame: position.end,
+                            name: section.get_object_name(handle).ok().flatten(),
+                        });
+                    }
+                }
+                CurrentObjects { objects }
+            })
+            .map_err(|_| EditorError::Unavailable)
+    })
+}
+
+#[cfg(windows)]
 fn write_object_observation(
     section: &aviutl2::generic::ReadSection,
     raw_scene_id: i32,
@@ -495,6 +546,11 @@ fn platform_timeline_reader() -> Arc<TimelineReader> {
     Arc::new(|| Err(EditorError::Unavailable))
 }
 
+#[cfg(not(windows))]
+fn platform_objects_reader() -> Arc<ObjectsReader> {
+    Arc::new(|| Err(EditorError::Unavailable))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -523,6 +579,7 @@ mod tests {
             4,
             Arc::new(reader),
             Arc::new(|| Ok(timeline())),
+            Arc::new(|| Ok(objects())),
             |_, listener, shutting_down, context| {
                 thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
             },
@@ -548,6 +605,17 @@ mod tests {
             cursor_frame: 0,
             object_end_frame: 0,
             highest_object_layer: 0,
+        }
+    }
+
+    fn objects() -> aviutl2_ai_agent_protocol::CurrentObjects {
+        aviutl2_ai_agent_protocol::CurrentObjects {
+            objects: vec![aviutl2_ai_agent_protocol::TimelineObject {
+                layer: 0,
+                start_frame: 10,
+                end_frame: 39,
+                name: Some("Title".to_owned()),
+            }],
         }
     }
 
@@ -608,6 +676,16 @@ mod tests {
         let actual: aviutl2_ai_agent_protocol::CurrentTimeline =
             serde_json::from_str(body(&response)).unwrap();
         assert_eq!(actual, timeline());
+    }
+
+    #[test]
+    fn current_objects_use_handle_free_snapshot_dto() {
+        let server = start(|| Ok(scene("Root", 0)));
+        let response = request(server.local_addr(), "/v1/scenes/current/objects");
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        let actual: aviutl2_ai_agent_protocol::CurrentObjects =
+            serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(actual, objects());
     }
 
     #[test]
@@ -690,6 +768,7 @@ mod tests {
             1,
             Arc::new(|| Ok(scene("Root", 0))),
             Arc::new(|| Ok(timeline())),
+            Arc::new(|| Ok(objects())),
             {
                 let accepted = Arc::clone(&accepted);
                 move |_, listener, shutting_down, context| {
@@ -755,6 +834,7 @@ mod tests {
             4,
             Arc::new(|| Ok(scene("Root", 0))),
             Arc::new(|| Ok(timeline())),
+            Arc::new(|| Ok(objects())),
             |index, listener, shutting_down, context| {
                 if index == 2 {
                     return Err(std::io::Error::other("injected spawn failure"));

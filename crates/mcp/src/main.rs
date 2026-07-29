@@ -1,7 +1,7 @@
 use std::io::{self, BufRead, Write};
 
 use anyhow::{Context, Result};
-use aviutl2_ai_agent_protocol::{ApiError, CurrentScene, CurrentTimeline};
+use aviutl2_ai_agent_protocol::{ApiError, CurrentObjects, CurrentScene, CurrentTimeline};
 use clap::Parser;
 use serde_json::{Value, json};
 
@@ -65,6 +65,15 @@ fn dispatch(endpoint: &str, request: &Value) -> Option<Value> {
                         "properties": {},
                         "additionalProperties": false
                     }
+                },
+                {
+                    "name": "list_current_objects",
+                    "description": "現在のsceneにあるobjectのsnapshotを読み取ります。",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": false
+                    }
                 }
             ]
         })),
@@ -96,6 +105,7 @@ fn call_tool(endpoint: &str, params: &Value) -> Result<Value, String> {
     let value = match name {
         "get_current_scene" => get::<CurrentScene>(endpoint, "/v1/scenes/current"),
         "get_current_timeline" => get::<CurrentTimeline>(endpoint, "/v1/scenes/current/timeline"),
+        "list_current_objects" => get::<CurrentObjects>(endpoint, "/v1/scenes/current/objects"),
         _ => return Err(format!("unknown tool: {name}")),
     }?;
     let text = serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?;
@@ -161,9 +171,10 @@ mod tests {
         )
         .unwrap();
         let tools = response["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 2);
+        assert_eq!(tools.len(), 3);
         assert_eq!(tools[0]["name"], "get_current_scene");
         assert_eq!(tools[1]["name"], "get_current_timeline");
+        assert_eq!(tools[2]["name"], "list_current_objects");
         assert!(
             tools
                 .iter()

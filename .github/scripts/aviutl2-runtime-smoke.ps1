@@ -363,6 +363,13 @@ try {
         throw "current-timeline failed with exit code $($timelineResult.ExitCode)"
     }
 
+    $objectsResult = Invoke-CliCapture -Arguments @("current-objects")
+    $objectsResult.Output |
+        Set-Content -Encoding utf8 (Join-Path $output "current-objects.json")
+    if ($objectsResult.ExitCode -ne 0) {
+        throw "current-objects failed with exit code $($objectsResult.ExitCode)"
+    }
+
     $idleClient = [System.Net.Sockets.TcpClient]::new()
     $idleClient.Connect("127.0.0.1", 7890)
     $shutdownStarted = [DateTime]::UtcNow

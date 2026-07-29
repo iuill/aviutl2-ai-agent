@@ -18,6 +18,7 @@ cargo run -p aviutl2-ai-agent -- health
 cargo run -p aviutl2-ai-agent -- status
 cargo run -p aviutl2-ai-agent -- current-scene
 cargo run -p aviutl2-ai-agent -- current-timeline
+cargo run -p aviutl2-ai-agent -- current-objects
 ```
 
 read-only MCP serverはstdioで起動します。
@@ -26,8 +27,8 @@ read-only MCP serverはstdioで起動します。
 cargo run -p aviutl2-ai-agent-mcp
 ```
 
-公開するtoolは `get_current_scene` と `get_current_timeline` だけで、MCP server自身も
-loopback HTTP APIを経由します。
+公開するtoolは `get_current_scene`、`get_current_timeline`、
+`list_current_objects` で、MCP server自身もloopback HTTP APIを経由します。
 
 各コマンドは、Windows 上のプラグインが
 `http://127.0.0.1:7890` で待ち受けていることを前提とします。
@@ -38,8 +39,9 @@ loopback HTTP APIを経由します。
 2. AviUtl2 を起動し、プラグイン情報に `aviutl2-ai-agent Phase 1` が表示されることを確認します。
 3. `dist\aviutl2-agent.exe health` を実行します。
 4. `dist\aviutl2-agent.exe status` を実行します。
-5. プロジェクトを開き、`dist\aviutl2-agent.exe current-scene` と
-   `dist\aviutl2-agent.exe current-timeline` を実行します。
+5. プロジェクトを開き、`dist\aviutl2-agent.exe current-scene`、
+   `dist\aviutl2-agent.exe current-timeline`、`dist\aviutl2-agent.exe current-objects`
+   を実行します。
 6. AviUtl2 を終了して再起動し、手順3を繰り返します。再起動後も成功すれば、
    プロセス終了後にポート7890を再利用できることを確認できます。ただし、この
    手順だけでは `UninitializePlugin` 内で全workerのjoinが完了したことまでは

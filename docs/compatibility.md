@@ -86,6 +86,11 @@ Undo復元時のraw handleは削除前と同じで、Redo後の新規再作成�
 失敗させると、1件目だけが残りました。UI Undo 1回で残った1件目は削除されました。
 自動rollbackは観測されず、実測後にprobeコードを製品buildから除去しました。
 
+同じ環境でhandleを含まないcurrent object snapshot APIも検証しました。空のRootでは
+空配列、FlaUIで作成したtext objectがある状態ではlayer 0、frame 142から222、
+nameなしの1件をCLIとstdio MCPの両方から取得しました。返却値にraw handleは
+含まれません。
+
 ## 2026-07-28 port 7890競合時の観測
 
 最初に、port 7890を先に占有し、plugin初期化からbind errorを返す実装を

@@ -52,14 +52,14 @@ IDの寿命を実測できなければ公開せず、内部の観測値に留め
 
 ### 1C: current sceneのtimeline / object read
 
-状態: **timeline概要を実装・Windows実測済み**
+状態: **timeline概要とobject一覧を実装**
 
 current scene identityの扱いを決めた後、利用価値を確認しながら次を1種類ずつ
 追加します。
 
 1. projectの観測可能なmetadata
 2. [完了] current sceneのtimeline概要
-3. object一覧と個別取得
+3. [一覧実装済み] object一覧と個別取得
 4. effectの列挙と取得できるmetadata
 
 object identity、project再読込時の無効化、eventとの関係は
@@ -69,7 +69,7 @@ current以外のsceneを明示するAPIは、sceneを安全に選択・列挙で
 
 ### 1.5: Read-only MCP
 
-状態: **scene / timeline toolを実装**
+状態: **scene / timeline / object一覧toolを実装**
 
 HTTP/CLIのread契約を実利用で評価できる段階で、AviUtl2 process外のstdio serverとして
 追加します。最初はproject/scene、object、必要ならframeの最大3 toolに絞ります。

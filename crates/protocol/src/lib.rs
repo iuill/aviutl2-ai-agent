@@ -50,6 +50,21 @@ pub struct FrameRate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentObjects {
+    pub objects: Vec<TimelineObject>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineObject {
+    pub layer: usize,
+    pub start_frame: usize,
+    pub end_frame: usize,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
     pub code: ErrorCode,
     pub message: String,
@@ -125,6 +140,19 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&timeline).unwrap(),
             r#"{"width":1920,"height":1080,"frameRate":{"numerator":30,"denominator":1},"cursorFrame":12,"objectEndFrame":99,"highestObjectLayer":2}"#
+        );
+
+        let objects = CurrentObjects {
+            objects: vec![TimelineObject {
+                layer: 0,
+                start_frame: 10,
+                end_frame: 39,
+                name: Some("Title".into()),
+            }],
+        };
+        assert_eq!(
+            serde_json::to_string(&objects).unwrap(),
+            r#"{"objects":[{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#
         );
     }
 

@@ -29,12 +29,15 @@ Phase 1では、現在のAviUtl2状態をローカルから読み取る小さな
 GET /v1/status
 GET /v1/scenes/current
 GET /v1/scenes/current/timeline
+GET /v1/scenes/current/objects
 ```
 
 - `/v1/status` はSDKを呼ばず、process、plugin、API、listenerなどplugin自身の状態を返す
 - `/v1/scenes/current` はread section内で現在sceneを読み、SDK型を含まないDTOを返す
 - `/v1/scenes/current/timeline` はcurrent sceneの編集情報を所有DTOへコピーして返す
-- CLIには対応する `status`、`current-scene`、`current-timeline` を追加する
+- `/v1/scenes/current/objects` はcurrent sceneのobject snapshotをhandleなしで返す
+- CLIには対応する `status`、`current-scene`、`current-timeline`、
+  `current-objects` を追加する
 - 現行の `/healthz` はliveness専用として維持する
 - `/phase0/read-section` は最初のPhase 1実装PRで削除し、gateを迂回するSDK経路を残さない
 
@@ -51,8 +54,8 @@ Phase 3までの実施順序は [`roadmap.md`](roadmap.md)で管理します。
 
 Phase 1.5ではprocess外のstdio MCP serverを追加します。MCP toolはplugin SDKを
 直接呼ばず、HTTP APIと同じvalidation、EditorGate、エラー境界を通ります。最初の
-toolは引数を持たない `get_current_scene` と `get_current_timeline` に限定し、
-write toolは含めません。
+toolは引数を持たない `get_current_scene`、`get_current_timeline`、
+`list_current_objects` に限定し、write toolは含めません。
 
 ## 実装境界
 
@@ -126,6 +129,27 @@ frameとlayerはSDKに合わせて0始まりです。`objectEndFrame` と
 sceneのdurationやlayer数とは定義しません。空のsceneでも0になり得るため、
 objectの存在有無を推測する用途には使いません。scene ID、SDK handle、選択状態は
 返しません。
+
+`GET /v1/scenes/current/objects` は次を返します。
+
+```json
+{
+  "objects": [
+    {
+      "layer": 0,
+      "startFrame": 10,
+      "endFrame": 39,
+      "name": "Title"
+    }
+  ]
+}
+```
+
+これは呼出時点のcurrent sceneのsnapshotです。`layer`、`startFrame`、`endFrame` は
+0始まりで、`endFrame` を含みます。この組を永続IDとは定義せず、scene切替や編集後も
+同じobjectを指すとは保証しません。raw handle、effect設定、file pathは返しません。
+Phase 2でobjectを変更する場合はlocatorと期待するsnapshotを同じedit section内で
+再検証し、0件または複数件なら変更しません。
 
 DNS rebindingとbrowserからの単純なcross-origin GETを避けるため、Phase 1では
 `Host: 127.0.0.1:7890` 以外と、`Origin` headerを持つrequestを拒否します。

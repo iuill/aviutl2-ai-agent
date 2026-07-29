@@ -91,8 +91,8 @@ source変更時も2分未満という目標を満たしました。
 ## Phase 1 の境界
 
 固定loopback port 7890と単一AviUtl2 instanceという制約を維持し、
-`docs/design.md` v0.5に記載された `status`、current scene、current timelineだけを
-公開します。
+`docs/design.md` v0.5に記載された `status`、current scene、current timeline、
+current object snapshotだけを公開します。
 read対象を追加する場合は設計のPhase 1範囲を同じPRで更新します。Undoや部分失敗など
 write固有の調査はPhase 2の開始条件とします。
 
@@ -107,8 +107,9 @@ keyにしたGitHub Actions cacheへ保存します。cache miss時だけ公式�
 プログラム本体をリポジトリやworkflow artifactへ保存しません。
 
 このworkflowは、AviUtl2の起動、Phase 1 pluginのロード、`health`、
-`status`、`current-scene`、`current-timeline` に加え、idle TCP clientを接続した
-状態での正常終了、全HTTP workerのjoin、終了後のport 7890再bindを検査します。
+`status`、`current-scene`、`current-timeline`、`current-objects` に加え、idle TCP
+clientを接続した状態での正常終了、全HTTP workerのjoin、終了後のport 7890再bindを
+検査します。
 さらにport 7890を先に占有して
 AviUtl2を再起動し、plugin初期化が完了しなくてもAviUtl2本体が起動・正常終了できることを
 観測します。失敗時のartifact採取に限り、残ったAviUtl2 processを強制終了します。
@@ -126,4 +127,5 @@ cargo run -p aviutl2-ai-agent-mcp
 ```
 
 別endpointを使うローカルtestでは `--endpoint` を指定できます。MCP toolはHTTP APIを
-迂回せず、現時点ではcurrent sceneとcurrent timelineのreadだけを公開します。
+迂回せず、現時点ではcurrent scene、current timeline、current object snapshotの
+readだけを公開します。
