@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[[bin]]
+name = "aviutl2-agent-mcp"
+path = "src/main.rs"
+
 [dependencies]
 anyhow.workspace = true
 aviutl2-ai-agent-protocol = { path = "../protocol" }

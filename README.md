@@ -133,6 +133,7 @@ Phase 1では単一AviUtl2 instance用にloopback port 7890を固定していま
 docker build --output type=local,dest=dist .
 ```
 
-`aviutl2-agent-plugin.aux2`、`aviutl2-agent.exe`、`SHA256SUMS` が
+`aviutl2-agent-plugin.aux2`、`aviutl2-agent.exe`、`aviutl2-agent-mcp.exe`、
+`SHA256SUMS` が
 生成されます。プラグインのロードと SDK に依存する検証には、
 AviUtl2 を導入した Windows 環境が必要です。

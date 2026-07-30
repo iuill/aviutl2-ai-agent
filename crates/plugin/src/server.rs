@@ -321,6 +321,8 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                             None,
                         );
                         write_response(stream, &response);
+                        // Keep the socket alive briefly so Winsock delivers the rejection
+                        // before closing a connection whose advertised body remains unread.
                         thread::sleep(IO_TIMEOUT);
                         return None;
                     }

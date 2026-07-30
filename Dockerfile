@@ -35,9 +35,9 @@ RUN cargo xwin build --locked --release --target x86_64-pc-windows-msvc \
 RUN mkdir /out \
  && cp target/x86_64-pc-windows-msvc/release/aviutl2_agent_plugin.dll /out/aviutl2-agent-plugin.aux2 \
  && cp target/x86_64-pc-windows-msvc/release/aviutl2-agent.exe /out/aviutl2-agent.exe \
- && cp target/x86_64-pc-windows-msvc/release/aviutl2-ai-agent-mcp.exe /out/aviutl2-ai-agent-mcp.exe \
+ && cp target/x86_64-pc-windows-msvc/release/aviutl2-agent-mcp.exe /out/aviutl2-agent-mcp.exe \
  && cd /out \
- && sha256sum aviutl2-agent-plugin.aux2 aviutl2-agent.exe aviutl2-ai-agent-mcp.exe > SHA256SUMS
+ && sha256sum aviutl2-agent-plugin.aux2 aviutl2-agent.exe aviutl2-agent-mcp.exe > SHA256SUMS
 
 FROM scratch AS export
 COPY --from=build /out/ /
