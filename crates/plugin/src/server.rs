@@ -2011,13 +2011,12 @@ mod tests {
         );
         let body_text = r#"{"expectedSceneName":"Other","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
         let mut stream = TcpStream::connect(server.local_addr()).unwrap();
-        write!(
-            stream,
+        let request_head = format!(
             "POST /v1/scenes/current/objects/move HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nExpect: 100-continue\r\n\r\n",
             server.local_addr(),
             body_text.len()
-        )
-        .unwrap();
+        );
+        stream.write_all(request_head.as_bytes()).unwrap();
         let mut interim = [0_u8; 25];
         stream.read_exact(&mut interim).unwrap();
         assert_eq!(&interim, b"HTTP/1.1 100 Continue\r\n\r\n");
