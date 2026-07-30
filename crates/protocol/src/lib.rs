@@ -32,6 +32,120 @@ pub struct CurrentScene {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentTimeline {
+    pub width: u64,
+    pub height: u64,
+    pub frame_rate: FrameRate,
+    pub cursor_frame: u64,
+    pub object_end_frame: u64,
+    pub highest_object_layer: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameRate {
+    pub numerator: i32,
+    pub denominator: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentObjects {
+    pub objects: Vec<TimelineObject>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineObject {
+    pub layer: u64,
+    pub start_frame: u64,
+    pub end_frame: u64,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MoveObjectRequest {
+    pub expected_scene_name: String,
+    pub target: TimelineObject,
+    pub destination: MoveObjectDestination,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MoveObjectDestination {
+    pub layer: u64,
+    pub start_frame: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveObjectResponse {
+    pub object: TimelineObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeleteObjectRequest {
+    pub expected_scene_name: String,
+    pub target: TimelineObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteObjectResponse {
+    pub deleted: TimelineObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateTextObjectRequest {
+    pub expected_scene_name: String,
+    pub layer: u64,
+    pub start_frame: u64,
+    pub length: u64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTextObjectResponse {
+    pub object: TimelineObject,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DuplicateObjectRequest {
+    pub expected_scene_name: String,
+    pub target: TimelineObject,
+    pub destination: MoveObjectDestination,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateObjectResponse {
+    pub object: TimelineObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateMediaObjectRequest {
+    pub expected_scene_name: String,
+    pub media_path: String,
+    pub layer: u64,
+    pub start_frame: u64,
+    pub length: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateMediaObjectResponse {
+    pub object: TimelineObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
     pub code: ErrorCode,
     pub message: String,
@@ -45,6 +159,9 @@ pub enum ErrorCode {
     RouteNotFound,
     EditorBusy,
     EditorUnavailable,
+    ObjectNotFound,
+    StateConflict,
+    MutationOutcomeUnknown,
     InternalError,
 }
 
@@ -92,6 +209,35 @@ mod tests {
             serde_json::to_string(&scene).unwrap(),
             r#"{"name":"Scene 1"}"#
         );
+
+        let timeline = CurrentTimeline {
+            width: 1920,
+            height: 1080,
+            frame_rate: FrameRate {
+                numerator: 30,
+                denominator: 1,
+            },
+            cursor_frame: 12,
+            object_end_frame: 99,
+            highest_object_layer: 2,
+        };
+        assert_eq!(
+            serde_json::to_string(&timeline).unwrap(),
+            r#"{"width":1920,"height":1080,"frameRate":{"numerator":30,"denominator":1},"cursorFrame":12,"objectEndFrame":99,"highestObjectLayer":2}"#
+        );
+
+        let objects = CurrentObjects {
+            objects: vec![TimelineObject {
+                layer: 0,
+                start_frame: 10,
+                end_frame: 39,
+                name: Some("Title".into()),
+            }],
+        };
+        assert_eq!(
+            serde_json::to_string(&objects).unwrap(),
+            r#"{"objects":[{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#
+        );
     }
 
     #[test]
@@ -105,6 +251,54 @@ mod tests {
             serde_json::to_string(&error).unwrap(),
             r#"{"code":"editor_busy","message":"EditorGate is busy","retryable":true}"#
         );
+    }
+
+    #[test]
+    fn move_request_uses_strict_camel_case_contract() {
+        let json = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let request = serde_json::from_str::<MoveObjectRequest>(json).unwrap();
+        assert_eq!(request.expected_scene_name, "Root");
+        assert_eq!(request.destination.layer, 2);
+        assert_eq!(serde_json::to_string(&request).unwrap(), json);
+
+        let with_unknown = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100},"extra":true}"#;
+        assert!(serde_json::from_str::<MoveObjectRequest>(with_unknown).is_err());
+    }
+
+    #[test]
+    fn delete_request_uses_strict_camel_case_contract() {
+        let json = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":null}}"#;
+        let request = serde_json::from_str::<DeleteObjectRequest>(json).unwrap();
+        assert_eq!(request.target.start_frame, 10);
+        assert_eq!(serde_json::to_string(&request).unwrap(), json);
+        assert!(
+            serde_json::from_str::<DeleteObjectRequest>(
+                r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":null},"extra":true}"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn create_text_request_uses_strict_camel_case_contract() {
+        let json =
+            r#"{"expectedSceneName":"Root","layer":1,"startFrame":100,"length":90,"text":"Hello"}"#;
+        let request = serde_json::from_str::<CreateTextObjectRequest>(json).unwrap();
+        assert_eq!(request.text, "Hello");
+        assert_eq!(request.length, 90);
+        assert_eq!(serde_json::to_string(&request).unwrap(), json);
+    }
+
+    #[test]
+    fn create_media_request_uses_strict_camel_case_contract() {
+        let json = r#"{"expectedSceneName":"Root","mediaPath":"C:\\media\\example.png","layer":1,"startFrame":100,"length":90}"#;
+        let request = serde_json::from_str::<CreateMediaObjectRequest>(json).unwrap();
+        assert_eq!(request.media_path, r"C:\media\example.png");
+        assert_eq!(request.length, 90);
+        assert_eq!(serde_json::to_string(&request).unwrap(), json);
+
+        let with_unknown = r#"{"expectedSceneName":"Root","mediaPath":"C:\\media\\example.png","layer":1,"startFrame":100,"length":90,"extra":true}"#;
+        assert!(serde_json::from_str::<CreateMediaObjectRequest>(with_unknown).is_err());
     }
 
     #[test]

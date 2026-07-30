@@ -6,6 +6,7 @@ on:
     paths:
       - "crates/plugin/**"
       - "crates/cli/**"
+      - "crates/mcp/**"
       - "crates/protocol/**"
       - ".cargo/**"
       - "Cargo.toml"
@@ -24,5 +25,30 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
       - run: cargo test --locked -p aviutl2-ai-agent-plugin
       - run: cargo test --locked -p aviutl2-ai-agent
+      - run: cargo test --locked -p aviutl2-ai-agent-mcp
       - run: cargo build --locked --release -p aviutl2-ai-agent-plugin
       - run: cargo build --locked --release -p aviutl2-ai-agent
+      - run: cargo build --locked --release -p aviutl2-ai-agent-mcp
+      - name: Smoke MCP stdio lifecycle
+        shell: pwsh
+        run: |
+          function Invoke-McpRequest([string] $Request) {
+            $responseText = $Request | & .\target\release\aviutl2-agent-mcp.exe
+            if ($LASTEXITCODE -ne 0) {
+              throw "MCP server exited with code $LASTEXITCODE"
+            }
+            return ($responseText | ConvertFrom-Json)
+          }
+
+          $modernRequest = '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"windows-ci","version":"1.0.0"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
+          $modern = Invoke-McpRequest $modernRequest
+          if ($modern.result.resultType -ne "complete" -or
+              $modern.result.supportedVersions -notcontains "2026-07-28") {
+            throw "Modern MCP discovery response was invalid"
+          }
+
+          $legacyRequest = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"windows-ci","version":"1.0.0"}}}'
+          $legacy = Invoke-McpRequest $legacyRequest
+          if ($legacy.result.protocolVersion -ne "2025-06-18") {
+            throw "Legacy MCP initialize response was invalid"
+          }

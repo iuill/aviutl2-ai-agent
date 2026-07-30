@@ -44,6 +44,53 @@ workflowは次を実行しました。
 この観測は上記runの環境と状態に限られます。Windows 11でのPhase 1成果物、
 別のproject状態は未確認です。
 
+## 2026-07-29 current scene identity追加観測
+
+Windows Server 2025とAviUtl2 2.1.2の対話sessionで、branch上のWindows native
+release buildを使ってcurrent sceneを切り替えました。初期Root、追加したScene1、
+Rootへの再切替を順にCLIで読み、SDKから得たraw scene IDを診断ログへ記録しました。
+
+- 初期RootはID 0だった
+- Scene1を選択するとID 1だった
+- Rootへ戻ると再びID 0だった
+- scene作成dialogの確認buttonはFlaUIで操作できた
+- scene listの行はUI Automation treeに公開されず、選択操作の汎用的な自動化は
+  確立できなかった
+
+この観測は同一process内の往復に限られます。project再読込、別project、同名scene、
+scene削除後のID再利用は未確認であり、IDは公開APIに含めていません。
+
+同じ環境でcurrent timeline概要を追加したWindows native release buildも検証しました。
+空のRootで `1920x1080`、frame rate `30/1`、cursor frame 0、SDKの
+`frame_max=0`、`layer_max=0` をCLIから読み取れました。runtime smokeはidle clientを
+接続したまま4 workerをpanicなしでjoinし、exit code 0で終了した後にportを再bind
+できました。これらの最大値は空のsceneでも0になるため、objectの存在やscene durationを
+表す値とは扱いません。
+
+同じbuildのstdio MCP serverから `get_current_timeline` を呼び、pluginのloopback APIを
+経由して同じtimeline概要を取得できることも確認しました。
+
+event診断を有効にしたbuildでは、起動時に `project_load` と `change_edit_scene` が
+別threadから連続して通知されました。空のRootに対するobject走査は空配列を返しました。
+callback内ではSDK read/editを呼ばず、診断値の記録だけを行いました。
+
+FlaUIからtimeline context menuの `ExpandCollapse` と `Invoke` patternを使ってtext
+objectを作成し、Delete、Undo、Redo、新規再作成を行いました。作成・削除では
+`update_object` と `change_focus_object`、Undo・Redoでは `update_object` を観測しました。
+Undo復元時のraw handleは削除前と同じで、Redo後の新規再作成では異なるhandleでした。
+この結果は同一process内の1 objectだけに限られ、handleを公開identityとして保証する
+ものではありません。
+
+公開APIを持たない一時buildでは、plugin内の非event worker threadからedit sectionを
+連続して呼べました。1つのedit section内で1件目のtext作成後、同位置への2件目を
+失敗させると、1件目だけが残りました。UI Undo 1回で残った1件目は削除されました。
+自動rollbackは観測されず、実測後にprobeコードを製品buildから除去しました。
+
+同じ環境でhandleを含まないcurrent object snapshot APIも検証しました。空のRootでは
+空配列、FlaUIで作成したtext objectがある状態ではlayer 0、frame 142から222、
+nameなしの1件をCLIとstdio MCPの両方から取得しました。返却値にraw handleは
+含まれません。
+
 ## 2026-07-28 port 7890競合時の観測
 
 最初に、port 7890を先に占有し、plugin初期化からbind errorを返す実装を
@@ -129,3 +176,71 @@ native command errorを捕捉するようruntime smokeを修正しました。
 class `Button`として公開され、UIA InvokePatternをsupportしていました。
 dialog、button名、Automation ID、classが一致する唯一の要素へInvokePatternを実行し、
 信頼確認後にpluginの`health`が成功することを確認しました。
+
+同じVM、AviUtl2 2.1.2、正規Docker cross-build成果物で、Phase 2のobject moveも
+実測しました。FlaUIのUIA3 InvokePatternでRootへtext objectを1件作成し、
+`GET /v1/scenes/current/objects` がlayer 0、frame 142から222、nameなしを返すことを
+確認してから、次を実行しました。
+
+1. 完全なsnapshotとRootを指定し、layer 2、start frame 300へmoveする
+2. 同じ古いsnapshotを再送する
+3. UIからUndoし、元のsnapshotへ戻ることを確認する
+4. `Expect: 100-continue` を送るcurlとPowerShell 5.1の`Invoke-RestMethod`でも
+   moveを往復する
+
+最初のmoveはlayer 2、frame 300から380のsnapshotを返しました。古いsnapshotの再送は
+`object_not_found`の404となり、別objectを変更しませんでした。UI Undo 1回で元位置へ
+復元しました。`Expect: 100-continue` を使うclientは本文送信まで約1秒待つため、
+pluginはこの場合だけ本文待機を2秒へ延長しています。curlと`Invoke-RestMethod`の
+両方でmove結果を受信できました。検証後はobjectを元位置へ戻し、AviUtl2を終了して
+processが残っていないことを確認しました。
+
+正規ビルドの`aviutl2-agent.exe move-object`でも同じobjectをlayer 2へ移動し、
+返された完全なsnapshotを使って元位置へ戻せることを確認しました。
+
+Phase 3の単一object deleteも同じ環境と正規ビルド成果物で確認しました。FlaUIで
+作成したtext objectの完全なsnapshotを`aviutl2-agent.exe delete-object`へ渡すと、
+削除前snapshotが返り、object一覧は空になりました。同じsnapshotの再送は
+`object_not_found`の404となりました。UI Undo 1回で元のlayer 0、frame 142から222へ
+復元しました。検証中にWinsock 10053を1回観測し、再試行後に上記のAPI結果を
+確認しました。この切断の原因と修正後の確認は後述します。
+
+単一text createでは、UI生成objectから一時診断buildで確認したeffect・項目名を使い、
+最小aliasを内部生成する実装を検証しました。正規ビルドの`create-text` CLIで
+layer 1、frame 100から189に本文`Hello`のobjectを作成し、responseで同じ本文を
+read-backできました。同じ位置への再作成はmutation前に`state_conflict`の409となり、
+UI Undo 1回でobject一覧が空へ戻りました。検証後はAviUtl2を終了しました。
+
+単一duplicateでは、上記text objectの内部aliasを取得し、layer 2、frame 200から289へ
+複製しました。作成後にframe行を除くalias全体を元objectと比較する実装で成功し、
+effectと本文を含む内容が一致することを確認しました。UI Undo 1回では複製だけが消え、
+元objectは残りました。検証後はAviUtl2を終了しました。
+
+単一media createでは、検証用の1px PNGと1秒無音WAVをcaller-managedな絶対pathから
+作成しました。PNGはlayer 1、frame 100から189、WAVはlayer 2、frame 100から129で
+requestどおり作成されました。相対pathは`invalid_request`の400、既存objectと重なる
+作成は`state_conflict`の409でした。UI Undo 1回で最後に作成したWAVだけが消え、
+PNGは残りました。fixture pathは文書・製品ログへ記録せず、検証後にAviUtl2を終了しました。
+
+MCP `2026-07-28`対応では公式Rust SDK `rmcp` 3.0.1へ移行し、Linuxのstdio integration
+testで`server/discover`とlegacy `initialize`の両lifecycleを確認しました。同SDKを含む
+Windows x64成果物は正規Docker buildで生成済みです。Windows native CIではrelease版
+`aviutl2-agent-mcp.exe`を実際に起動し、stdio経由で`server/discover`とlegacy
+`initialize`のresponseを確認しました。cross-buildとは別の合格条件として継続します。
+
+### 2026-07-30 loopback HTTP切断の調査
+
+Windows 11、AviUtl2 2.1.2、正規cross-build成果物で、10件のtext createと4 clientから
+各12回のhealthを実行しました。修正前はhealth 1件がclient側のWinsock 10054で失敗し、
+同時刻のserver診断ログでは、accept直後の最初のreadがWinsock 10035
+（`WouldBlock`）で失敗していました。listenerを終了監視のためnonblockingにした結果、
+Windowsではacceptしたsocketにもその状態が継承され、request bytesの到着前にreadすると
+接続を閉じていたことが原因です。過去に観測した10053も同じ実装に起因するものと
+判断しました。
+
+accept後のsocketを明示的にblockingへ戻してからread/write timeoutを設定するよう修正し、
+同じ58要求を再実行しました。client失敗は0件、最大応答時間は101 msで、server側も
+事前healthを含む59接続すべてがflushまで完了し、I/O失敗は0件でした。続けてmove、
+古いsnapshotの再送、duplicate、配置競合、delete、削除済みsnapshotの再送、作成競合、
+UI Undo/Redoを実行しました。期待どおり200、404、409へ分岐し、計68接続の診断ログに
+I/O失敗はありませんでした。

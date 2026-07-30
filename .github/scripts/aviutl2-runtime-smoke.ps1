@@ -67,6 +67,35 @@ $succeeded = $false
 $failure = $null
 $trustApprovals = 0
 $conflictTrustApprovals = 0
+$observationLogs = [ordered]@{
+    AVIUTL2_AI_AGENT_SCENE_OBSERVATION_LOG = "scene-observations.jsonl"
+    AVIUTL2_AI_AGENT_EVENT_OBSERVATION_LOG = "event-observations.jsonl"
+    AVIUTL2_AI_AGENT_OBJECT_OBSERVATION_LOG = "object-observations.jsonl"
+}
+$previousObservationLogs = @{}
+foreach ($environmentName in $observationLogs.Keys) {
+    $previousObservationLogs[$environmentName] = [Environment]::GetEnvironmentVariable(
+        $environmentName,
+        "Process"
+    )
+    [Environment]::SetEnvironmentVariable(
+        $environmentName,
+        (Join-Path $output $observationLogs[$environmentName]),
+        "Process"
+    )
+}
+@(
+    "scene-observations.jsonl",
+    "event-observations.jsonl",
+    "object-observations.jsonl",
+    "plugin-lifecycle.jsonl",
+    "port-conflict-plugin-lifecycle.jsonl"
+) | ForEach-Object {
+    $staleLog = Join-Path $output $_
+    if (Test-Path -LiteralPath $staleLog) {
+        Remove-Item -LiteralPath $staleLog -Force
+    }
+}
 
 Add-Type -TypeDefinition @"
 using System;
@@ -292,11 +321,19 @@ try {
         throw "/healthz did not become ready within 45 seconds"
     }
 
-    $statusOutput = & $cli status 2>&1 | Out-String
-    $statusExitCode = $LASTEXITCODE
+    $statusDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $statusResult = Invoke-CliCapture -Arguments @("status")
+        $statusOutput = $statusResult.Output
+        $statusExitCode = $statusResult.ExitCode
+        if ($statusExitCode -ne 0 -and [DateTime]::UtcNow -lt $statusDeadline) {
+            Start-Sleep -Milliseconds 250
+        }
+    } while ($statusExitCode -ne 0 -and [DateTime]::UtcNow -lt $statusDeadline)
+
     $statusOutput | Set-Content -Encoding utf8 (Join-Path $output "status.json")
     if ($statusExitCode -ne 0) {
-        throw "status failed with exit code $statusExitCode"
+        throw "status did not become ready within 15 seconds"
     }
 
     $sceneDeadline = [DateTime]::UtcNow.AddSeconds(15)
@@ -304,13 +341,33 @@ try {
         $sceneResult = Invoke-CliCapture -Arguments @("current-scene")
         $sceneOutput = $sceneResult.Output
         $sceneExitCode = $sceneResult.ExitCode
-        if ($sceneExitCode -eq 3 -and [DateTime]::UtcNow -lt $sceneDeadline) {
+        if ($sceneExitCode -ne 0 -and [DateTime]::UtcNow -lt $sceneDeadline) {
             Start-Sleep -Milliseconds 250
         }
-    } while ($sceneExitCode -eq 3 -and [DateTime]::UtcNow -lt $sceneDeadline)
+    } while ($sceneExitCode -ne 0 -and [DateTime]::UtcNow -lt $sceneDeadline)
     $sceneOutput | Set-Content -Encoding utf8 (Join-Path $output "current-scene.json")
     if ($sceneExitCode -ne 0) {
         throw "current-scene failed with exit code $sceneExitCode"
+    }
+
+    $timelineDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $timelineResult = Invoke-CliCapture -Arguments @("current-timeline")
+        if ($timelineResult.ExitCode -ne 0 -and [DateTime]::UtcNow -lt $timelineDeadline) {
+            Start-Sleep -Milliseconds 250
+        }
+    } while ($timelineResult.ExitCode -ne 0 -and [DateTime]::UtcNow -lt $timelineDeadline)
+    $timelineResult.Output |
+        Set-Content -Encoding utf8 (Join-Path $output "current-timeline.json")
+    if ($timelineResult.ExitCode -ne 0) {
+        throw "current-timeline failed with exit code $($timelineResult.ExitCode)"
+    }
+
+    $objectsResult = Invoke-CliCapture -Arguments @("current-objects")
+    $objectsResult.Output |
+        Set-Content -Encoding utf8 (Join-Path $output "current-objects.json")
+    if ($objectsResult.ExitCode -ne 0) {
+        throw "current-objects failed with exit code $($objectsResult.ExitCode)"
     }
 
     $idleClient = [System.Net.Sockets.TcpClient]::new()
@@ -600,6 +657,14 @@ finally {
         Select-Object State, LocalAddress, LocalPort, OwningProcess |
         ConvertTo-Json |
         Set-Content -Encoding utf8 (Join-Path $output "port-7890.json")
+
+    foreach ($environmentName in $observationLogs.Keys) {
+        [Environment]::SetEnvironmentVariable(
+            $environmentName,
+            $previousObservationLogs[$environmentName],
+            "Process"
+        )
+    }
 }
 
 if (-not $succeeded) {

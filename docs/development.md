@@ -91,7 +91,8 @@ source変更時も2分未満という目標を満たしました。
 ## Phase 1 の境界
 
 固定loopback port 7890と単一AviUtl2 instanceという制約を維持し、
-`docs/design.md` v0.5に記載された `status` とcurrent sceneだけを公開します。
+`docs/design.md` v0.5に記載された `status`、current scene、current timeline、
+current object snapshotだけを公開します。
 read対象を追加する場合は設計のPhase 1範囲を同じPRで更新します。Undoや部分失敗など
 write固有の調査はPhase 2の開始条件とします。
 
@@ -106,10 +107,45 @@ keyにしたGitHub Actions cacheへ保存します。cache miss時だけ公式�
 プログラム本体をリポジトリやworkflow artifactへ保存しません。
 
 このworkflowは、AviUtl2の起動、Phase 1 pluginのロード、`health`、
-`status` と `current-scene` に加え、idle TCP clientを接続した状態での正常終了、全HTTP
-workerのjoin、終了後のport 7890再bindを検査します。さらにport 7890を先に占有して
+`status`、`current-scene`、`current-timeline`、`current-objects` に加え、idle TCP
+clientを接続した状態での正常終了、全HTTP workerのjoin、終了後のport 7890再bindを
+検査します。
+さらにport 7890を先に占有して
 AviUtl2を再起動し、plugin初期化が完了しなくてもAviUtl2本体が起動・正常終了できることを
 観測します。失敗時のartifact採取に限り、残ったAviUtl2 processを強制終了します。
 GitHub-hosted runnerのGPU、DirectX、対話desktop、AviUtl2の初回確認が実行条件を
 満たすか自体も検証対象です。
 CIの必須チェックやpush triggerにはせず、手動実行でだけ起動します。
+
+## Read-only MCP
+
+MCP serverはAviUtl2 process外でstdio serverとして起動し、既定では
+`http://127.0.0.1:7890` のplugin APIを使います。
+
+```bash
+cargo run -p aviutl2-ai-agent-mcp
+```
+
+別endpointを使うローカルtestでは `--endpoint` を指定できます。MCP toolはHTTP APIを
+迂回せず、現時点ではcurrent scene、current timeline、current object snapshotの
+readだけを公開します。公式Rust SDK `rmcp` がMCP `2026-07-28`とlegacy lifecycleの
+version negotiation、JSON-RPC error、notificationを処理します。unit testでは
+`server/discover`と`initialize`の両方を実際のstdio framingで検証します。
+
+## Mutation debug log
+
+Windowsで`AVIUTL2_AI_AGENT_MUTATION_DEBUG_LOG`に出力先を指定すると、media createの
+末尾file nameと成否をJSON Linesで記録します。full pathは記録しません。file nameにも
+個人情報が含まれ得るため、問題調査時だけ明示的に有効化してください。
+
+## HTTP diagnostic log
+
+接続切断やtimeoutの原因調査では、
+`AVIUTL2_AI_AGENT_HTTP_DIAGNOSTIC_LOG`に出力先を指定すると、loopback HTTP serverの
+処理段階をJSON Linesで記録できます。各接続について、受付、request受信、route完了、
+responseのflush、またはI/O失敗を同じ`connectionId`で追跡できます。I/O失敗には
+Rustのerror kind、OS error code、OSが返したmessageを記録します。
+
+request body、text、media path、Host header、接続元addressは記録しません。
+requestは既知のAPI routeを固定名へ置換し、未知のpathは`other`として記録します。
+診断中だけ有効化し、採取したログは公開前に機微情報がないことを別途確認してください。

@@ -66,12 +66,13 @@ port 7890が残留せず、再起動したプラグインが再bindできるこ�
 
 - [x] HTTP worker からread sectionを呼ぶためのPhase 0プローブを実装する
 - [x] HTTP worker から read section を呼ぶ（通常状態）
-- [ ] HTTP worker から edit section を呼ぶ
-- [ ] event callback のthread IDと同期／非同期性を記録する
+- [x] plugin内の非event worker threadから edit section を呼ぶ
+- [x] event callback のthread IDを記録する
 - [x] event callback 内ではevent情報をqueueまたはatomic stateへ記録するだけとする
 - [x] event callback から `call_edit_section` を呼ばない
-- [ ] edit section 内で現在状態を読み取る
-- [ ] edit section を入れ子または連続で呼ぶ
+- [x] edit section 内で現在状態を読み取る
+- [x] edit section を連続で呼ぶ
+- [ ] edit section を入れ子で呼ぶ
 - [ ] section 実行中に終了する
 
 呼び出し可能なスレッドと、必要なdispatcher設計を記録します。
@@ -83,6 +84,20 @@ read/write、write/write並列呼び出しは必須完了条件にしません�
 
 > 通常状態でのHTTP workerからのread section呼び出しは成功しました。
 > 特殊状態と終了処理との競合は未検証です。
+
+2026-07-29にWindows Server 2025とAviUtl2 2.1.2で、公開APIを持たない一時buildを
+使い、plugin内で生成した非event worker threadから `call_edit_section` を呼びました。
+1回目のcallback内でobject数を読み、text objectを作成し、作成したhandleから名前を
+読み取った後、同じ位置への2件目の作成を意図的に失敗させました。callbackは完了し、
+続く2回目の `call_edit_section` も成功してobject数1を返しました。
+
+この結果から、観測した通常状態では非event worker threadからedit sectionを呼べ、
+edit内readと連続呼出しが成立しました。入れ子、並列、終了競合は未検証です。probeは
+実測後に製品buildから除去し、公開write経路にはしていません。
+
+2026-07-29に同じ環境で、FlaUIから作成した既定text objectのaliasを一時診断buildで
+取得しました。先頭effectは`テキスト`、本文の項目名も`テキスト`で、2番目のeffectは
+`標準描画`でした。診断buildとraw aliasは製品worktreeへ残していません。
 
 ### HTTP worker read-sectionプローブ
 
@@ -257,17 +272,24 @@ loopback HTTP応答、HTTP workerからのread section呼び出しが成立す�
 
 ## Q2 — Undo と部分失敗
 
-状態：**繰延（Phase 2開始前）**
+状態：**調査中（Phase 2開始前）**
 
 - [ ] 1つのedit sectionで2オブジェクトを変更し、Undoを1回実行する
-- [ ] 2件目のmutationを意図的に失敗させる
+- [x] 2件目のmutationを意図的に失敗させる
 - [ ] オブジェクト作成後、設定更新を失敗させる
 - [ ] 複合操作内で削除し、Undoする
-- [ ] 明示的なrollback APIの有無を調べる
+- [x] 明示的なrollback APIの有無を調べる
 
 Undoの粒度と、部分的な変更が残るかを記録します。
 
-> 未検証
+同じ2026-07-29の一時buildで、1つのedit section内の1件目にtext objectを作成し、
+同位置への2件目の作成を失敗させました。callback終了後も1件目は残り、SDKによる
+自動rollbackは行われませんでした。その後のUI Undo 1回で残った1件目が消えました。
+
+`aviutl2` 0.41.0のgeneric APIと同versionのPlugin SDK定義には、明示的なtransaction、
+rollback、Undo単位を指定するAPIは見つかりませんでした。従って複数mutationを
+原子的とは扱えず、Phase 2の最初の公開writeは1 request 1 mutationに限定します。
+設定更新失敗と削除を含む複合操作のUndo粒度は引き続き未検証です。
 
 ## Q3 — フレームレンダリング
 
@@ -306,8 +328,30 @@ dialogの種類は未記録です。タイムラインのドラッグ中、出�
 重複・欠落するか、削除済みhandleが再利用されるかを確認します。
 
 シーン切替後と別プロジェクト読込後にread sectionを呼び、現在のシーン名を
-読み取れることは確認しました。変更を通知するevent、callbackのthread、
-同期／非同期性、重複・欠落、handleの無効化・再利用は未検証です。
+読み取れることは確認しました。
+
+2026-07-29にWindows Server 2025とAviUtl2 2.1.2でevent診断ログを有効にし、
+空のRootで起動とport競合用の再起動を観測しました。各起動で `project_load` の直後に
+`change_edit_scene` が発火し、同一起動内では互いに異なるRust thread IDでした。
+event callbackではevent種別、時刻、threadだけを記録し、read/edit sectionは
+呼びませんでした。
+
+同じbuildでcurrent timelineを読む際に、read section内でlayerごとのobjectを走査して
+所有データへコピーできました。空のRootではobject配列は空でした。
+
+続いてFlaUIからtimelineのcontext menuをUI Automation patternで展開し、text objectを
+作成しました。作成、削除、Undo、Redo、新規再作成の順に操作した結果は次のとおりです。
+
+- 作成時は `update_object`、`change_focus_object` の順に発火した
+- 削除時も `update_object`、`change_focus_object` の順に発火した
+- Undoによる復元とRedoによる再削除では `update_object` だけが発火した
+- これらのobject eventは同じevent threadから通知された
+- Undoで復元されたobjectのraw handleは削除前と同じだった
+- Redoで削除した後、同じ位置に新規作成したobjectのraw handleは以前と異なった
+
+これは1つのtext objectを同一process、同一sceneで操作した観測に限られます。
+handleの長期寿命、再利用されないこと、eventの一意性や欠落しないことは保証しません。
+raw handleは公開identityに使わず、request内でmetadataをコピーするためだけに使います。
 
 ## Q6 — Linux から Windows へのビルド
 
@@ -387,16 +431,20 @@ plugin_drop_completed
 
 ## Q7 — Undo API の公開
 
-状態：**繰延（Phase 2開始前）**
+状態：**調査中（Phase 2開始前）**
 
-- [ ] SDKのUndo/Redo APIを探す
+- [x] SDKのUndo/Redo APIを探す
 - [ ] 人間の操作をUndoする可能性があるか確認する
-- [ ] eventとrevisionの挙動を記録する
+- [x] UI操作による作成・削除・Undo・Redoのeventを記録する
 - [ ] Undo stackの位置や深さを照会できるか確認する
 
-直前のAPI操作だけが対象になると証明できない限り、Undoを公開しません。
+`aviutl2` 0.41.0のgeneric APIと同versionのPlugin SDK定義には、Undo/Redoを直接実行する
+API、stack位置、stack深さを取得するAPIは見つかりませんでした。Windows実測では
+`Ctrl+Z` で削除をUndoし、`Ctrl+Shift+Z` でRedoできましたが、これはAviUtl2全体の
+UI操作履歴を対象にするため、agentが直前に行った変更だけを安全に戻す根拠には
+なりません。
 
-> 未検証
+直前のAPI操作だけが対象になると証明できない限り、Undoを公開しません。
 
 ## 結果
 
@@ -437,10 +485,28 @@ generic APIと`aviutl2-sys` Plugin SDK定義にはscene一覧を列挙する関�
 この静的調査だけではscene IDの寿命や再利用を保証できないため、次をWindowsで
 追加観測します。
 
-- [ ] Rootと追加sceneのIDを記録する
-- [ ] sceneを往復してIDの一致を記録する
+- [x] Rootと追加sceneのIDを記録する
+- [x] sceneを往復してIDの一致を記録する
 - [ ] 同名sceneを作成してIDを記録する
 - [ ] project再読込と別project読込後のIDを記録する
 - [ ] scene削除後にIDが再利用されるか記録する
 
 scene一覧APIは、安全な列挙方法が確認できるまで公開しません。
+
+2026-07-29にWindows Server 2025、AviUtl2 2.1.2、branch上のWindows native
+release buildを使い、対話sessionで追加観測しました。pluginが任意の観測ログへ
+current scene名とSDKのraw `scene_id` を記録する状態で、次の順に操作しました。
+
+1. 初期状態のRootをCLIで読む
+2. scene listからScene1を作成して選択し、CLIで読む
+3. Rootを再選択し、CLIで読む
+
+観測値は `Root=0`、`Scene1=1`、再選択した `Root=0` でした。同一process内の
+往復ではRootのIDが一致しました。scene listはUI AutomationのControl viewとRaw viewの
+どちらにも子要素として公開されず、scene作成dialogの確認buttonだけはFlaUIから
+Automation IDを使って操作できました。scene行の選択はこの観測環境の座標に依存する
+実験用操作であり、再利用可能なruntime smokeには含めません。
+
+この結果だけではprocessやprojectをまたぐIDの寿命、削除後の再利用、同名sceneの
+識別を保証できません。従ってraw `scene_id` は公開responseへ追加せず、残りの観測が
+終わるまで内部の診断値に留めます。

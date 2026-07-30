@@ -1,12 +1,18 @@
 use std::process::ExitCode;
 
 use anyhow::Context;
-use aviutl2_ai_agent_protocol::{ApiError, CurrentScene, ErrorCode, Health, Status};
+use aviutl2_ai_agent_protocol::{
+    ApiError, CreateMediaObjectRequest, CreateMediaObjectResponse, CreateTextObjectRequest,
+    CreateTextObjectResponse, CurrentObjects, CurrentScene, CurrentTimeline, DeleteObjectRequest,
+    DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse, ErrorCode, Health,
+    MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status, TimelineObject,
+};
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
+use ureq::http;
 
 #[derive(Debug, Parser)]
-#[command(version, about = "AviUtl2 local read-only API client")]
+#[command(version, about = "AviUtl2 local API client")]
 struct Args {
     #[arg(long, default_value = "http://127.0.0.1:7890")]
     endpoint: String,
@@ -22,6 +28,83 @@ enum Command {
     Status,
     /// Read the currently selected scene.
     CurrentScene,
+    /// Read the current scene timeline summary.
+    CurrentTimeline,
+    /// List objects in the current scene as a point-in-time snapshot.
+    CurrentObjects,
+    /// Move one object identified by its complete current snapshot.
+    MoveObject {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        layer: u64,
+        #[arg(long)]
+        start_frame: u64,
+        #[arg(long)]
+        end_frame: u64,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        destination_layer: u64,
+        #[arg(long)]
+        destination_start_frame: u64,
+    },
+    /// Delete one object identified by its complete current snapshot.
+    DeleteObject {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        layer: u64,
+        #[arg(long)]
+        start_frame: u64,
+        #[arg(long)]
+        end_frame: u64,
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Create one text object with a single alias-based SDK mutation.
+    CreateText {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        layer: u64,
+        #[arg(long)]
+        start_frame: u64,
+        #[arg(long)]
+        length: u64,
+        #[arg(long)]
+        text: String,
+    },
+    /// Duplicate one object at a non-overlapping destination.
+    DuplicateObject {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        layer: u64,
+        #[arg(long)]
+        start_frame: u64,
+        #[arg(long)]
+        end_frame: u64,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        destination_layer: u64,
+        #[arg(long)]
+        destination_start_frame: u64,
+    },
+    /// Create one media object from a caller-managed absolute Windows path.
+    CreateMedia {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        media_path: String,
+        #[arg(long)]
+        layer: u64,
+        #[arg(long)]
+        start_frame: u64,
+        #[arg(long)]
+        length: u64,
+    },
 }
 
 fn main() -> ExitCode {
@@ -46,6 +129,124 @@ fn run(args: Args) -> Result<(), ClientError> {
             &args.endpoint,
             "/v1/scenes/current",
             "current scene",
+        )?),
+        Command::CurrentTimeline => serde_json::to_string_pretty(&get::<CurrentTimeline>(
+            &args.endpoint,
+            "/v1/scenes/current/timeline",
+            "current timeline",
+        )?),
+        Command::CurrentObjects => serde_json::to_string_pretty(&get::<CurrentObjects>(
+            &args.endpoint,
+            "/v1/scenes/current/objects",
+            "current objects",
+        )?),
+        Command::MoveObject {
+            expected_scene_name,
+            layer,
+            start_frame,
+            end_frame,
+            name,
+            destination_layer,
+            destination_start_frame,
+        } => serde_json::to_string_pretty(&post::<MoveObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/move",
+            &MoveObjectRequest {
+                expected_scene_name,
+                target: TimelineObject {
+                    layer,
+                    start_frame,
+                    end_frame,
+                    name,
+                },
+                destination: MoveObjectDestination {
+                    layer: destination_layer,
+                    start_frame: destination_start_frame,
+                },
+            },
+            "move object",
+        )?),
+        Command::DeleteObject {
+            expected_scene_name,
+            layer,
+            start_frame,
+            end_frame,
+            name,
+        } => serde_json::to_string_pretty(&post::<DeleteObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/delete",
+            &DeleteObjectRequest {
+                expected_scene_name,
+                target: TimelineObject {
+                    layer,
+                    start_frame,
+                    end_frame,
+                    name,
+                },
+            },
+            "delete object",
+        )?),
+        Command::CreateText {
+            expected_scene_name,
+            layer,
+            start_frame,
+            length,
+            text,
+        } => serde_json::to_string_pretty(&post::<CreateTextObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/text",
+            &CreateTextObjectRequest {
+                expected_scene_name,
+                layer,
+                start_frame,
+                length,
+                text,
+            },
+            "create text object",
+        )?),
+        Command::DuplicateObject {
+            expected_scene_name,
+            layer,
+            start_frame,
+            end_frame,
+            name,
+            destination_layer,
+            destination_start_frame,
+        } => serde_json::to_string_pretty(&post::<DuplicateObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/duplicate",
+            &DuplicateObjectRequest {
+                expected_scene_name,
+                target: TimelineObject {
+                    layer,
+                    start_frame,
+                    end_frame,
+                    name,
+                },
+                destination: MoveObjectDestination {
+                    layer: destination_layer,
+                    start_frame: destination_start_frame,
+                },
+            },
+            "duplicate object",
+        )?),
+        Command::CreateMedia {
+            expected_scene_name,
+            media_path,
+            layer,
+            start_frame,
+            length,
+        } => serde_json::to_string_pretty(&post::<CreateMediaObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/media",
+            &CreateMediaObjectRequest {
+                expected_scene_name,
+                media_path,
+                layer,
+                start_frame,
+                length,
+            },
+            "create media object",
         )?),
     }
     .context("failed to serialize response")
@@ -81,9 +282,36 @@ impl ClientError {
                     },
                 ..
             } => 3,
+            Self::Api {
+                error:
+                    ApiError {
+                        code: ErrorCode::MutationOutcomeUnknown,
+                        ..
+                    },
+                ..
+            } => 4,
             Self::Api { .. } | Self::Other(_) => 1,
         }
     }
+}
+
+fn post<T: DeserializeOwned>(
+    base_endpoint: &str,
+    path: &str,
+    body: &impl serde::Serialize,
+    response_name: &str,
+) -> Result<T, ClientError> {
+    let endpoint = format!("{}{path}", base_endpoint.trim_end_matches('/'));
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let mut response = agent
+        .post(&endpoint)
+        .send_json(body)
+        .with_context(|| format!("failed to connect to {endpoint}"))
+        .map_err(ClientError::Other)?;
+    decode_response(&endpoint, response_name, &mut response)
 }
 
 fn get<T: DeserializeOwned>(
@@ -101,6 +329,14 @@ fn get<T: DeserializeOwned>(
         .call()
         .with_context(|| format!("failed to connect to {endpoint}"))
         .map_err(ClientError::Other)?;
+    decode_response(&endpoint, response_name, &mut response)
+}
+
+fn decode_response<T: DeserializeOwned>(
+    endpoint: &str,
+    response_name: &str,
+    response: &mut http::Response<ureq::Body>,
+) -> Result<T, ClientError> {
     let status = response.status().as_u16();
     if !response.status().is_success() {
         let error = response
@@ -125,9 +361,12 @@ mod tests {
         thread,
     };
 
-    use aviutl2_ai_agent_protocol::{CurrentScene, ErrorCode, HealthStatus, Status};
+    use aviutl2_ai_agent_protocol::{
+        CurrentObjects, CurrentScene, CurrentTimeline, ErrorCode, HealthStatus,
+        MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status, TimelineObject,
+    };
 
-    use super::{ClientError, get};
+    use super::{ClientError, get, post};
 
     fn serve_once(status: &str, body: &str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -136,8 +375,29 @@ mod tests {
         let body = body.to_owned();
         thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0_u8; 1024];
-            let _ = stream.read(&mut request);
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            loop {
+                let count = stream.read(&mut chunk).unwrap();
+                request.extend_from_slice(&chunk[..count]);
+                let Some(head_end) = request
+                    .windows(4)
+                    .position(|window| window == b"\r\n\r\n")
+                    .map(|position| position + 4)
+                else {
+                    continue;
+                };
+                let head = std::str::from_utf8(&request[..head_end]).unwrap();
+                let content_length = head
+                    .split("\r\n")
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                    .map(|(_, value)| value.trim().parse::<usize>().unwrap())
+                    .unwrap_or(0);
+                if request.len() >= head_end + content_length {
+                    break;
+                }
+            }
             write!(
                 stream,
                 "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -161,6 +421,53 @@ mod tests {
         let endpoint = serve_once("200 OK", r#"{"name":"Scene 1"}"#);
         let scene: CurrentScene = get(&endpoint, "/v1/scenes/current", "current scene").unwrap();
         assert_eq!(scene.name, "Scene 1");
+
+        let endpoint = serve_once(
+            "200 OK",
+            r#"{"width":1920,"height":1080,"frameRate":{"numerator":30,"denominator":1},"cursorFrame":12,"objectEndFrame":99,"highestObjectLayer":2}"#,
+        );
+        let timeline: CurrentTimeline =
+            get(&endpoint, "/v1/scenes/current/timeline", "current timeline").unwrap();
+        assert_eq!(timeline.cursor_frame, 12);
+        assert_eq!(timeline.frame_rate.numerator, 30);
+
+        let endpoint = serve_once(
+            "200 OK",
+            r#"{"objects":[{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#,
+        );
+        let objects: CurrentObjects =
+            get(&endpoint, "/v1/scenes/current/objects", "current objects").unwrap();
+        assert_eq!(objects.objects.len(), 1);
+        assert_eq!(objects.objects[0].start_frame, 10);
+    }
+
+    #[test]
+    fn posts_move_request_and_parses_result() {
+        let endpoint = serve_once(
+            "200 OK",
+            r#"{"object":{"layer":2,"startFrame":100,"endFrame":129,"name":"Title"}}"#,
+        );
+        let moved: MoveObjectResponse = post(
+            &endpoint,
+            "/v1/scenes/current/objects/move",
+            &MoveObjectRequest {
+                expected_scene_name: "Root".to_owned(),
+                target: TimelineObject {
+                    layer: 0,
+                    start_frame: 10,
+                    end_frame: 39,
+                    name: Some("Title".to_owned()),
+                },
+                destination: MoveObjectDestination {
+                    layer: 2,
+                    start_frame: 100,
+                },
+            },
+            "move object",
+        )
+        .unwrap();
+        assert_eq!(moved.object.layer, 2);
+        assert_eq!(moved.object.end_frame, 129);
     }
 
     #[test]
@@ -195,6 +502,16 @@ mod tests {
                 get::<CurrentScene>(&endpoint, "/v1/scenes/current", "current scene").unwrap_err();
             assert_eq!(error.exit_code(), 3);
         }
+    }
+
+    #[test]
+    fn maps_unknown_mutation_outcome_to_exit_code_four() {
+        let endpoint = serve_once(
+            "500 Internal Server Error",
+            r#"{"code":"mutation_outcome_unknown","message":"re-read current objects","retryable":false}"#,
+        );
+        let error = get::<Status>(&endpoint, "/v1/status", "status").unwrap_err();
+        assert_eq!(error.exit_code(), 4);
     }
 
     #[test]
