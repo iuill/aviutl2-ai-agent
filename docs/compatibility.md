@@ -224,5 +224,6 @@ PNGは残りました。fixture pathは文書・製品ログへ記録せず、�
 
 MCP `2026-07-28`対応では公式Rust SDK `rmcp` 3.0.1へ移行し、Linuxのstdio integration
 testで`server/discover`とlegacy `initialize`の両lifecycleを確認しました。同SDKを含む
-Windows x64成果物は正規Docker buildで生成済みです。更新後のMCP binaryをWindowsで
-実行するnative runtime確認は未実施であり、cross-buildとは別の合格条件として扱います。
+Windows x64成果物は正規Docker buildで生成済みです。Windows native CIではrelease版
+`aviutl2-agent-mcp.exe`を実際に起動し、stdio経由で`server/discover`とlegacy
+`initialize`のresponseを確認しました。cross-buildとは別の合格条件として継続します。
