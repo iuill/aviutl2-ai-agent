@@ -1,10 +1,10 @@
 use std::{
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -33,6 +33,7 @@ const EDITOR_GATE_TIMEOUT: Duration = Duration::from_millis(100);
 const RETRY_AFTER_SECONDS: u64 = 1;
 const API_VERSION: &str = "v1";
 const SCENE_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_SCENE_OBSERVATION_LOG";
+const HTTP_DIAGNOSTIC_LOG_ENV: &str = "AVIUTL2_AI_AGENT_HTTP_DIAGNOSTIC_LOG";
 #[cfg(windows)]
 const OBJECT_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_OBJECT_OBSERVATION_LOG";
 #[cfg(windows)]
@@ -106,6 +107,49 @@ struct ServerContext {
     text_object_creator: Arc<TextObjectCreator>,
     object_duplicator: Arc<ObjectDuplicator>,
     media_object_creator: Arc<MediaObjectCreator>,
+    diagnostic_log: Option<HttpDiagnosticLog>,
+}
+
+struct HttpDiagnosticLog {
+    file: Mutex<File>,
+    next_connection_id: AtomicU64,
+}
+
+impl HttpDiagnosticLog {
+    fn from_env() -> Option<Self> {
+        let path = std::env::var_os(HTTP_DIAGNOSTIC_LOG_ENV)?;
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .ok()?;
+        Some(Self {
+            file: Mutex::new(file),
+            next_connection_id: AtomicU64::new(1),
+        })
+    }
+
+    fn next_connection_id(&self) -> u64 {
+        self.next_connection_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn event(&self, connection_id: u64, event: &str, fields: serde_json::Value) {
+        let timestamp_millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default();
+        let record = serde_json::json!({
+            "timestampMillis": timestamp_millis,
+            "connectionId": connection_id,
+            "thread": format!("{:?}", thread::current().id()),
+            "event": event,
+            "fields": fields,
+        });
+        if let Ok(mut file) = self.file.lock() {
+            let _ = writeln!(file, "{record}");
+            let _ = file.flush();
+        }
+    }
 }
 
 /// Loopback HTTP server whose threads and SDK access gate are owned here.
@@ -190,6 +234,7 @@ impl ApiServer {
             text_object_creator: parts.text_object_creator,
             object_duplicator: parts.object_duplicator,
             media_object_creator: parts.media_object_creator,
+            diagnostic_log: HttpDiagnosticLog::from_env(),
         });
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
@@ -262,22 +307,65 @@ fn worker_loop(
 }
 
 fn handle_connection(mut stream: TcpStream, context: &ServerContext) {
-    if stream.set_read_timeout(Some(IO_TIMEOUT)).is_err() {
+    let connection_id = context
+        .diagnostic_log
+        .as_ref()
+        .map_or(0, HttpDiagnosticLog::next_connection_id);
+    log_http_event(context, connection_id, "accepted", serde_json::json!({}));
+    if let Err(error) = configure_accepted_stream(&stream) {
+        log_http_io_error(context, connection_id, "configure_stream_failed", &error);
         return;
     }
-    if stream.set_write_timeout(Some(IO_TIMEOUT)).is_err() {
-        return;
+    if let Err(error) = stream.set_nodelay(true) {
+        log_http_io_error(context, connection_id, "set_nodelay_failed", &error);
     }
-    let _ = stream.set_nodelay(true);
 
-    let Some(request) = read_request(&mut stream) else {
+    let started = Instant::now();
+    let Some(request) = read_request(&mut stream, context, connection_id) else {
         return;
     };
+    let (method, route_name) = diagnostic_request_label(&request.head);
+    log_http_event(
+        context,
+        connection_id,
+        "request_received",
+        serde_json::json!({
+            "method": method,
+            "route": route_name,
+            "headBytes": request.head.len(),
+            "bodyBytes": request.body.len(),
+            "elapsedMillis": started.elapsed().as_millis(),
+        }),
+    );
     let response = route(&request, context);
-    write_response(&mut stream, &response);
+    log_http_event(
+        context,
+        connection_id,
+        "route_completed",
+        serde_json::json!({
+            "status": response.status,
+            "bodyBytes": response.body.len(),
+            "elapsedMillis": started.elapsed().as_millis(),
+        }),
+    );
+    write_response(&mut stream, &response, context, connection_id);
 }
 
-fn write_response(stream: &mut TcpStream, response: &HttpResponse) {
+fn configure_accepted_stream(stream: &TcpStream) -> std::io::Result<()> {
+    // Windows inherits the listener's nonblocking state on an accepted socket.
+    // The listener uses nonblocking polling for shutdown, but each worker handles
+    // one complete request synchronously and relies on bounded I/O timeouts.
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(IO_TIMEOUT))?;
+    stream.set_write_timeout(Some(IO_TIMEOUT))
+}
+
+fn write_response(
+    stream: &mut TcpStream,
+    response: &HttpResponse,
+    context: &ServerContext,
+    connection_id: u64,
+) {
     let mut head = format!(
         "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
         response.status,
@@ -287,9 +375,27 @@ fn write_response(stream: &mut TcpStream, response: &HttpResponse) {
         head.push_str(&format!("Retry-After: {retry_after}\r\n"));
     }
     head.push_str("\r\n");
-    let _ = stream.write_all(head.as_bytes());
-    let _ = stream.write_all(&response.body);
-    let _ = stream.flush();
+    if let Err(error) = stream.write_all(head.as_bytes()) {
+        log_http_io_error(context, connection_id, "write_head_failed", &error);
+        return;
+    }
+    if let Err(error) = stream.write_all(&response.body) {
+        log_http_io_error(context, connection_id, "write_body_failed", &error);
+        return;
+    }
+    if let Err(error) = stream.flush() {
+        log_http_io_error(context, connection_id, "flush_failed", &error);
+        return;
+    }
+    log_http_event(
+        context,
+        connection_id,
+        "response_flushed",
+        serde_json::json!({
+            "headBytes": head.len(),
+            "bodyBytes": response.body.len(),
+        }),
+    );
 }
 
 struct HttpRequest {
@@ -297,12 +403,28 @@ struct HttpRequest {
     body: Vec<u8>,
 }
 
-fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
+fn read_request(
+    stream: &mut TcpStream,
+    context: &ServerContext,
+    connection_id: u64,
+) -> Option<HttpRequest> {
     let mut request = Vec::with_capacity(512);
     let mut chunk = [0_u8; 512];
     while request.len() < MAX_REQUEST_HEAD {
         match stream.read(&mut chunk) {
-            Ok(0) | Err(_) => return None,
+            Ok(0) => {
+                log_http_event(
+                    context,
+                    connection_id,
+                    "read_head_eof",
+                    serde_json::json!({"bytesRead": request.len()}),
+                );
+                return None;
+            }
+            Err(error) => {
+                log_http_io_error(context, connection_id, "read_head_failed", &error);
+                return None;
+            }
             Ok(count) => {
                 request.extend_from_slice(&chunk[..count]);
                 if let Some(head_end) = request
@@ -320,7 +442,7 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                             false,
                             None,
                         );
-                        write_response(stream, &response);
+                        write_response(stream, &response, context, connection_id);
                         // Keep the socket alive briefly so Winsock delivers the rejection
                         // before closing a connection whose advertised body remains unread.
                         thread::sleep(IO_TIMEOUT);
@@ -329,13 +451,48 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                     let mut body = request[head_end..].to_vec();
                     let body_deadline = Instant::now() + EXPECT_BODY_TIMEOUT;
                     if expects_continue(&head) && body.len() < content_length {
-                        stream.set_read_timeout(Some(EXPECT_BODY_TIMEOUT)).ok()?;
-                        stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").ok()?;
-                        stream.flush().ok()?;
+                        if let Err(error) = stream.set_read_timeout(Some(EXPECT_BODY_TIMEOUT)) {
+                            log_http_io_error(
+                                context,
+                                connection_id,
+                                "set_expect_timeout_failed",
+                                &error,
+                            );
+                            return None;
+                        }
+                        if let Err(error) = stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n") {
+                            log_http_io_error(
+                                context,
+                                connection_id,
+                                "write_continue_failed",
+                                &error,
+                            );
+                            return None;
+                        }
+                        if let Err(error) = stream.flush() {
+                            log_http_io_error(
+                                context,
+                                connection_id,
+                                "flush_continue_failed",
+                                &error,
+                            );
+                            return None;
+                        }
                     }
                     while body.len() < content_length {
                         match stream.read(&mut chunk) {
-                            Ok(0) => return None,
+                            Ok(0) => {
+                                log_http_event(
+                                    context,
+                                    connection_id,
+                                    "read_body_eof",
+                                    serde_json::json!({
+                                        "bytesRead": body.len(),
+                                        "expectedBytes": content_length,
+                                    }),
+                                );
+                                return None;
+                            }
                             Ok(count) => body.extend_from_slice(&chunk[..count]),
                             Err(error)
                                 if matches!(
@@ -348,7 +505,15 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                                 thread::sleep(Duration::from_millis(1));
                                 continue;
                             }
-                            Err(_) => return None,
+                            Err(error) => {
+                                log_http_io_error(
+                                    context,
+                                    connection_id,
+                                    "read_body_failed",
+                                    &error,
+                                );
+                                return None;
+                            }
                         }
                         if body.len() > content_length {
                             return None;
@@ -360,6 +525,58 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
         }
     }
     None
+}
+
+fn log_http_event(
+    context: &ServerContext,
+    connection_id: u64,
+    event: &str,
+    fields: serde_json::Value,
+) {
+    if let Some(log) = &context.diagnostic_log {
+        log.event(connection_id, event, fields);
+    }
+}
+
+fn log_http_io_error(
+    context: &ServerContext,
+    connection_id: u64,
+    event: &str,
+    error: &std::io::Error,
+) {
+    log_http_event(
+        context,
+        connection_id,
+        event,
+        serde_json::json!({
+            "errorKind": format!("{:?}", error.kind()),
+            "rawOsError": error.raw_os_error(),
+            "message": error.to_string(),
+        }),
+    );
+}
+
+fn diagnostic_request_label(head: &str) -> (&str, &'static str) {
+    let mut parts = head
+        .split("\r\n")
+        .next()
+        .unwrap_or_default()
+        .split_whitespace();
+    let method = parts.next().unwrap_or("unknown");
+    let route = match parts.next() {
+        Some("/healthz") => "health",
+        Some("/v1/status") => "status",
+        Some("/v1/scenes/current") => "current_scene",
+        Some("/v1/scenes/current/timeline") => "current_timeline",
+        Some("/v1/scenes/current/objects") => "current_objects",
+        Some("/v1/scenes/current/objects/move") => "move_object",
+        Some("/v1/scenes/current/objects/delete") => "delete_object",
+        Some("/v1/scenes/current/objects/text") => "create_text_object",
+        Some("/v1/scenes/current/objects/duplicate") => "duplicate_object",
+        Some("/v1/scenes/current/objects/media") => "create_media_object",
+        _ => "other",
+    };
+    (method, route)
 }
 
 fn expects_continue(head: &str) -> bool {
@@ -1539,8 +1756,8 @@ mod tests {
     };
 
     use super::{
-        ACCEPT_POLL, ApiServer, EditorError, ServerError, ServerParts, handle_connection,
-        worker_loop,
+        ACCEPT_POLL, ApiServer, EditorError, ServerError, ServerParts, configure_accepted_stream,
+        handle_connection, worker_loop,
     };
 
     fn start(
@@ -1551,6 +1768,26 @@ mod tests {
             |_| Err(super::MutationError::Unavailable),
             |_| Err(super::MutationError::Unavailable),
         )
+    }
+
+    #[test]
+    fn accepted_stream_is_blocking_before_waiting_for_request_bytes() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            thread::sleep(Duration::from_millis(25));
+            stream.write_all(b"x").unwrap();
+        });
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.set_nonblocking(true).unwrap();
+
+        configure_accepted_stream(&stream).unwrap();
+        let mut byte = [0_u8; 1];
+        stream.read_exact(&mut byte).unwrap();
+
+        assert_eq!(byte, *b"x");
+        client.join().unwrap();
     }
 
     fn start_with_mover(

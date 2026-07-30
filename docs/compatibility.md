@@ -202,8 +202,8 @@ Phase 3の単一object deleteも同じ環境と正規ビルド成果物で確認
 作成したtext objectの完全なsnapshotを`aviutl2-agent.exe delete-object`へ渡すと、
 削除前snapshotが返り、object一覧は空になりました。同じsnapshotの再送は
 `object_not_found`の404となりました。UI Undo 1回で元のlayer 0、frame 142から222へ
-復元しました。検証中に既知の一過性Winsock 10053を1回観測し、再試行後に上記の
-API結果を確認しています。検証後はAviUtl2を終了し、processが残っていません。
+復元しました。検証中にWinsock 10053を1回観測し、再試行後に上記のAPI結果を
+確認しました。この切断の原因と修正後の確認は後述します。
 
 単一text createでは、UI生成objectから一時診断buildで確認したeffect・項目名を使い、
 最小aliasを内部生成する実装を検証しました。正規ビルドの`create-text` CLIで
@@ -227,3 +227,20 @@ testで`server/discover`とlegacy `initialize`の両lifecycleを確認しまし�
 Windows x64成果物は正規Docker buildで生成済みです。Windows native CIではrelease版
 `aviutl2-agent-mcp.exe`を実際に起動し、stdio経由で`server/discover`とlegacy
 `initialize`のresponseを確認しました。cross-buildとは別の合格条件として継続します。
+
+### 2026-07-30 loopback HTTP切断の調査
+
+Windows 11、AviUtl2 2.1.2、正規cross-build成果物で、10件のtext createと4 clientから
+各12回のhealthを実行しました。修正前はhealth 1件がclient側のWinsock 10054で失敗し、
+同時刻のserver診断ログでは、accept直後の最初のreadがWinsock 10035
+（`WouldBlock`）で失敗していました。listenerを終了監視のためnonblockingにした結果、
+Windowsではacceptしたsocketにもその状態が継承され、request bytesの到着前にreadすると
+接続を閉じていたことが原因です。過去に観測した10053も同じ実装に起因するものと
+判断しました。
+
+accept後のsocketを明示的にblockingへ戻してからread/write timeoutを設定するよう修正し、
+同じ58要求を再実行しました。client失敗は0件、最大応答時間は101 msで、server側も
+事前healthを含む59接続すべてがflushまで完了し、I/O失敗は0件でした。続けてmove、
+古いsnapshotの再送、duplicate、配置競合、delete、削除済みsnapshotの再送、作成競合、
+UI Undo/Redoを実行しました。期待どおり200、404、409へ分岐し、計68接続の診断ログに
+I/O失敗はありませんでした。

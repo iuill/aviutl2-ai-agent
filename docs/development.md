@@ -137,3 +137,15 @@ version negotiation、JSON-RPC error、notificationを処理します。unit tes
 Windowsで`AVIUTL2_AI_AGENT_MUTATION_DEBUG_LOG`に出力先を指定すると、media createの
 末尾file nameと成否をJSON Linesで記録します。full pathは記録しません。file nameにも
 個人情報が含まれ得るため、問題調査時だけ明示的に有効化してください。
+
+## HTTP diagnostic log
+
+接続切断やtimeoutの原因調査では、
+`AVIUTL2_AI_AGENT_HTTP_DIAGNOSTIC_LOG`に出力先を指定すると、loopback HTTP serverの
+処理段階をJSON Linesで記録できます。各接続について、受付、request受信、route完了、
+responseのflush、またはI/O失敗を同じ`connectionId`で追跡できます。I/O失敗には
+Rustのerror kind、OS error code、OSが返したmessageを記録します。
+
+request body、text、media path、Host header、接続元addressは記録しません。
+requestは既知のAPI routeを固定名へ置換し、未知のpathは`other`として記録します。
+診断中だけ有効化し、採取したログは公開前に機微情報がないことを別途確認してください。
