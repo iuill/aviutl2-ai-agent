@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="810" viewBox="0 0 1440 810" role="img" aria-labelledby="title description">
+  <title id="title">aviutl2-ai-agent architecture</title>
+  <desc id="description">Codex and Claude Code use either the CLI or MCP Server to call the loopback HTTP API exposed by the AviUtl2 plugin.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+    <linearGradient id="agentGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ede9fe"/>
+      <stop offset="1" stop-color="#ddd6fe"/>
+    </linearGradient>
+    <linearGradient id="bridgeGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dbeafe"/>
+      <stop offset="1" stop-color="#bfdbfe"/>
+    </linearGradient>
+    <linearGradient id="hostGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dcfce7"/>
+      <stop offset="1" stop-color="#bbf7d0"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity=".12"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 12 6 0 12Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowViolet" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 12 6 0 12Z" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 12 6 0 12Z" fill="#15803d"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 12 6 0 12Z" fill="#d97706"/>
+    </marker>
+    <style>
+      .title { font-family: "DejaVu Sans", sans-serif; font-size: 30px; font-weight: 700; fill: #0f172a; }
+      .subtitle { font-family: "DejaVu Sans", sans-serif; font-size: 16px; font-weight: 400; fill: #475569; }
+      .lane-title { font-family: "DejaVu Sans", sans-serif; font-size: 17px; font-weight: 700; fill: #334155; letter-spacing: .04em; }
+      .node-title { font-family: "DejaVu Sans", sans-serif; font-size: 20px; font-weight: 700; fill: #0f172a; }
+      .node-text { font-family: "DejaVu Sans", sans-serif; font-size: 15px; font-weight: 400; fill: #475569; }
+      .code { font-family: "DejaVu Sans Mono", monospace; font-size: 14px; font-weight: 600; fill: #1e3a8a; }
+      .edge-label { font-family: "DejaVu Sans", sans-serif; font-size: 14px; font-weight: 600; fill: #334155; }
+      .small { font-family: "DejaVu Sans", sans-serif; font-size: 13px; font-weight: 400; fill: #64748b; }
+      .badge { font-family: "DejaVu Sans", sans-serif; font-size: 13px; font-weight: 700; fill: #422006; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="810" rx="28" fill="url(#background)"/>
+  <text x="64" y="64" class="title">aviutl2-ai-agent</text>
+  <text x="64" y="92" class="subtitle">One loopback HTTP API and safety boundary for every agent operation</text>
+
+  <rect x="48" y="126" width="300" height="530" rx="24" fill="#ffffff" stroke="#c4b5fd" stroke-width="2" filter="url(#shadow)"/>
+  <text x="72" y="162" class="lane-title">AI AGENTS</text>
+
+  <rect x="72" y="190" width="252" height="132" rx="18" fill="url(#agentGradient)" stroke="#a78bfa" stroke-width="2"/>
+  <circle cx="104" cy="222" r="12" fill="#7c3aed"/>
+  <text x="128" y="229" class="node-title">Codex</text>
+  <circle cx="104" cy="265" r="12" fill="#8b5cf6"/>
+  <text x="128" y="272" class="node-title">Claude Code</text>
+  <circle cx="104" cy="299" r="8" fill="#a78bfa"/>
+  <text x="128" y="305" class="node-text">Other coding agents</text>
+
+  <rect x="72" y="340" width="252" height="118" rx="18" fill="#faf5ff" stroke="#c4b5fd" stroke-width="2"/>
+  <text x="96" y="378" class="node-title">Command Runner</text>
+  <text x="96" y="407" class="node-text">shell / coding agent tool</text>
+  <text x="96" y="434" class="small">Invokes one CLI operation</text>
+
+  <rect x="72" y="496" width="252" height="118" rx="18" fill="#faf5ff" stroke="#c4b5fd" stroke-width="2"/>
+  <text x="96" y="534" class="node-title">MCP Client</text>
+  <text x="96" y="563" class="node-text">tool discovery / tool call</text>
+  <text x="96" y="590" class="small">Built into the AI agent</text>
+
+  <rect x="400" y="126" width="440" height="530" rx="24" fill="#ffffff" stroke="#93c5fd" stroke-width="2" filter="url(#shadow)"/>
+  <text x="424" y="162" class="lane-title">OUT-OF-PROCESS BRIDGES</text>
+
+  <rect x="424" y="340" width="368" height="118" rx="18" fill="url(#bridgeGradient)" stroke="#60a5fa" stroke-width="2"/>
+  <text x="448" y="378" class="node-title">CLI</text>
+  <rect x="714" y="354" width="54" height="28" rx="14" fill="#fbbf24"/>
+  <text x="741" y="373" text-anchor="middle" class="badge">Rust</text>
+  <text x="448" y="408" class="code">aviutl2-agent.exe</text>
+  <text x="448" y="435" class="small">Turns commands into HTTP requests</text>
+
+  <rect x="424" y="496" width="368" height="118" rx="18" fill="url(#bridgeGradient)" stroke="#60a5fa" stroke-width="2"/>
+  <text x="448" y="534" class="node-title">MCP Server</text>
+  <rect x="714" y="510" width="54" height="28" rx="14" fill="#fbbf24"/>
+  <text x="741" y="529" text-anchor="middle" class="badge">Rust</text>
+  <text x="448" y="564" class="code">aviutl2-agent-mcp.exe</text>
+  <text x="448" y="591" class="small">Proxies read-only tools to HTTP</text>
+
+  <rect x="892" y="126" width="500" height="530" rx="24" fill="#ffffff" stroke="#86efac" stroke-width="2" filter="url(#shadow)"/>
+  <text x="916" y="162" class="lane-title">AVIUTL2 PROCESS / WINDOWS</text>
+
+  <rect x="916" y="230" width="452" height="198" rx="20" fill="url(#hostGradient)" stroke="#4ade80" stroke-width="2"/>
+  <text x="940" y="270" class="node-title">aviutl2-agent Plugin</text>
+  <text x="940" y="300" class="code">aviutl2-agent-plugin.aux2</text>
+  <rect x="940" y="329" width="404" height="72" rx="14" fill="#ffffff" fill-opacity=".82" stroke="#86efac"/>
+  <text x="960" y="359" class="node-title">Local HTTP API</text>
+  <text x="960" y="384" class="code">127.0.0.1:7890</text>
+
+  <rect x="916" y="490" width="452" height="124" rx="20" fill="#f0fdf4" stroke="#4ade80" stroke-width="2"/>
+  <text x="940" y="535" class="node-title">AviUtl2</text>
+  <text x="940" y="565" class="node-text">Timeline, objects, and media</text>
+  <text x="940" y="590" class="small">Read and write through Plugin SDK</text>
+
+  <path d="M198 322 V340" fill="none" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowViolet)"/>
+  <path d="M260 322 C340 350 350 460 260 496" fill="none" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowViolet)"/>
+  <text x="278" y="468" class="edge-label">tool call</text>
+
+  <path d="M324 399 H424" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrowBlue)"/>
+  <text x="342" y="386" class="edge-label">command</text>
+
+  <path d="M324 555 H424" fill="none" stroke="#7c3aed" stroke-width="3" marker-end="url(#arrowViolet)"/>
+  <text x="348" y="542" class="edge-label">MCP / stdio</text>
+
+  <path d="M792 399 H856 Q876 399 876 379 V365 Q876 365 916 365" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrowBlue)"/>
+  <text x="810" y="386" class="edge-label">HTTP / JSON</text>
+
+  <path d="M792 555 H856 Q876 555 876 515 V385 Q876 365 916 365" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrowBlue)"/>
+  <text x="798" y="540" class="edge-label">HTTP / JSON</text>
+
+  <path d="M1142 428 V490" fill="none" stroke="#15803d" stroke-width="3" marker-end="url(#arrowGreen)"/>
+  <text x="1162" y="465" class="edge-label">Plugin SDK</text>
+
+  <rect x="400" y="190" width="440" height="96" rx="16" fill="#eff6ff" stroke="#bfdbfe"/>
+  <text x="424" y="225" class="node-title">Two entry points, one API</text>
+  <text x="424" y="253" class="node-text">CLI and MCP Server never call the SDK directly.</text>
+  <text x="424" y="276" class="node-text">Both share plugin validation and EditorGate.</text>
+
+  <rect x="48" y="688" width="1344" height="74" rx="20" fill="#fffbeb" stroke="#fbbf24" stroke-width="2"/>
+  <text x="72" y="718" class="lane-title">BUILD TIME</text>
+  <text x="210" y="732" class="node-title">Linux + Docker</text>
+  <path d="M390 726 H504" fill="none" stroke="#d97706" stroke-width="3" stroke-dasharray="8 7" marker-end="url(#arrowAmber)"/>
+  <text x="534" y="732" class="node-title">cargo-xwin</text>
+  <path d="M682 726 H796" fill="none" stroke="#d97706" stroke-width="3" stroke-dasharray="8 7" marker-end="url(#arrowAmber)"/>
+  <text x="826" y="718" class="node-title">Windows x64 artifacts</text>
+  <text x="826" y="744" class="code">.exe / .aux2</text>
+  <text x="1120" y="732" class="small">Cross-compiled on Linux</text>
+</svg>

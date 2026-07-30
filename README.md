@@ -10,6 +10,20 @@
 これは非公式かつ実験段階のプロジェクトであり、AviUtl2公式のプロジェクトでは
 ありません。
 
+## アーキテクチャ
+
+![aviutl2-ai-agentのアーキテクチャ](docs/assets/architecture.svg)
+
+CodexやClaude CodeなどのAIエージェントは、コマンドとしてCLIを呼び出すか、
+内蔵するMCP ClientからMCP Serverへtool callを送ります。CLIとMCP Serverはどちらも
+Rust製のprocess外binaryで、Windows上のloopback HTTP APIへ接続し、
+AviUtl2 Plugin SDKを直接呼びません。
+
+HTTP APIを提供するプラグインがvalidationとSDKアクセスの直列化を担うため、CLI経路と
+MCP経路は同じ安全性境界を通ってAviUtl2のタイムラインを読み書きします。
+プラグイン、CLI、MCP ServerのWindows x64成果物は、Linux上の正規Docker buildから
+`cargo-xwin`でクロスコンパイルします。
+
 ## 開発時の確認
 
 ```bash
