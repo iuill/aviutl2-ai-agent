@@ -15,9 +15,10 @@
 ![aviutl2-ai-agentのアーキテクチャ](docs/assets/architecture.svg)
 
 CodexやClaude CodeなどのAIエージェントは、コマンドとしてCLIを呼び出すか、
-内蔵するMCP ClientからMCP Serverへtool callを送ります。CLIとMCP Serverはどちらも
-Rust製のprocess外binaryで、Windows上のloopback HTTP APIへ接続し、
-AviUtl2 Plugin SDKを直接呼びません。
+内蔵するMCP ClientからMCP Serverへtool callを送ります。プラグイン、CLI、MCP Serverは
+いずれもRust製です。CLIとMCP ServerはWindowsのEXEとしてprocess外で動作し、
+プラグインは`cdylib`からAviUtl2用の`.aux2`として生成します。CLIとMCP Serverは
+Windows上のloopback HTTP APIへ接続し、AviUtl2 Plugin SDKを直接呼びません。
 
 HTTP APIを提供するプラグインがvalidationとSDKアクセスの直列化を担うため、CLI経路と
 MCP経路は同じ安全性境界を通ってAviUtl2のタイムラインを読み書きします。
