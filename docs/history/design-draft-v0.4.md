@@ -3,7 +3,7 @@
 > [!NOTE]
 > このファイルは、Phase 0 着手前に作成された 2026-07-27 付 Draft v0.4 の
 > 履歴資料です。現行仕様ではありません。現在の設計判断は
-> [`design.md`](design.md)、実測結果とPhase移行条件は
+> [`../design.md`](../design.md)、実測結果とPhase移行条件は
 > [`phase0.md`](phase0.md)を参照してください。
 
 - ステータス: Draft v0.4
@@ -271,7 +271,7 @@ AviUtl2 側で次の状態にあるとき、read / write / render が安全に�
 
 安全に判定できる場合は `/v1/status` と `/v1/capabilities` に現在の可用性を反映し、write を受け付けられないときは `503 EDITOR_BUSY` を返す。
 
-判定手段が存在しない場合は、書き込みを直列化したうえで、危険な状態での write を明示的に非対応とし、既知の再現条件を `docs/compatibility.md` に記録する。
+判定手段が存在しない場合は、書き込みを直列化したうえで、危険な状態での write を明示的に非対応とし、既知の再現条件を `docs/verification/windows.md` に記録する。
 
 ### Q5. イベント通知・revision・ObjectHandle の安定性
 
@@ -1930,7 +1930,7 @@ SDK に触れる部分を `EditorBackend` / dispatcher 境界で切り出す。
 
 ### 20.3 Phase 0 手動チェックリスト
 
-自動化が難しい項目は `docs/phase0.md` に手順と期待結果を残す。
+自動化が難しい項目は `docs/history/phase0.md` に手順と期待結果を残す。
 
 - ドラッグ中に HTTP write
 - モーダル表示中に HTTP write
@@ -1964,7 +1964,7 @@ aviutl2 = "=0.41.0"
 8. HTTP API DTO に SDK 変更が漏れていないか
 9. Q1〜Q7 の前提が崩れていないか
 
-`docs/compatibility.md` に記録する。
+`docs/verification/windows.md` に記録する。
 
 ```text
 plugin version | aviutl2-rs | minimum AviUtl2 | Rust | API version | build image
@@ -2104,7 +2104,7 @@ write API は公開しない。
 13. Q7: Undo API の有無と、人間の操作を巻き込むかを確認する
 14. 長い render 中に `/healthz` が応答することを確認する
 15. Linux build artifact と Windows native build artifact の load 差異を確認する
-16. 結果を `docs/phase0.md` に記録し、`docs/design.md` の【暫定】【未定】章へ反映する
+16. 結果を `docs/history/phase0.md` に記録し、`docs/design.md` の【暫定】【未定】章へ反映する
 
 Phase 0 の時点では汎用 API を作り込まない。SDK の事実を先に採取する。
 

@@ -4,7 +4,7 @@
 
 Phase 0は2026-07-28に完了しました。目的はSDKの全挙動を調べ切ることではなく、
 Windows + AviUtl2で最小のread-only経路を安全に実装できる根拠を得ることでした。
-観測結果の詳細と未検証事項は [`phase0.md`](phase0.md) に残します。
+観測結果の詳細と未検証事項は [`history/phase0.md`](history/phase0.md) に残します。
 
 Phase 0で確認できたこと:
 
@@ -20,30 +20,30 @@ Phase 0で確認できたこと:
 未検証のSDK挙動は保証しません。必要になったPhaseで、API範囲を広げる前に追加調査
 します。
 
-## Phase 1の目的
+## 公開範囲
 
-Phase 1では、現在のAviUtl2状態をローカルから読み取る小さなHTTP APIとCLIを作ります。
-最初の実装範囲は次の2経路だけです。
+Phase 1から3で、現在のAviUtl2状態をローカルから読み書きする小さなHTTP API、CLI、
+MCP Serverを実装しました。read APIは次の経路を公開します。
 
 ```http
 GET /v1/status
 GET /v1/scenes/current
 GET /v1/scenes/current/timeline
 GET /v1/scenes/current/objects
+GET /v1/scenes/current/objects/details
 ```
 
 - `/v1/status` はSDKを呼ばず、process、plugin、API、listenerなどplugin自身の状態を返す
 - `/v1/scenes/current` はread section内で現在sceneを読み、SDK型を含まないDTOを返す
 - `/v1/scenes/current/timeline` はcurrent sceneの編集情報を所有DTOへコピーして返す
 - `/v1/scenes/current/objects` はcurrent sceneのobject snapshotをhandleなしで返す
+- `/v1/scenes/current/objects/details` はsnapshot、公開種別、text本文を返す
 - CLIには対応する `status`、`current-scene`、`current-timeline`、
-  `current-objects` を追加する
-- 現行の `/healthz` はliveness専用として維持する
-- `/phase0/read-section` は最初のPhase 1実装PRで削除し、gateを迂回するSDK経路を残さない
+  `current-objects`、`current-object-details` がある
+- `/healthz` はliveness専用として維持する
 
-object、effect、font、frame render、event recorder、project epoch、session discoveryは
-timeline概要のsliceに含めません。利用価値を確かめながら、必要なものを1種類ずつ
-追加します。
+effect、font、frame render、event recorder、project epoch、session discoveryは
+現在の公開範囲に含めません。利用価値を確かめ、必要なものを1種類ずつ追加します。
 
 最初のsliceの次に調べるread対象はcurrent scene identityです。`aviutl2` 0.41.0と
 Plugin SDK定義にはcurrent sceneのIDと名前がありますが、scene一覧の列挙APIは
@@ -52,12 +52,13 @@ Plugin SDK定義にはcurrent sceneのIDと名前がありますが、scene一�
 readを候補とし、current以外のsceneを推測で選択するAPIは公開しません。
 Phase 3までの実施順序は [`roadmap.md`](roadmap.md)で管理します。
 
-Phase 1.5ではprocess外のstdio MCP serverを追加します。MCP toolはplugin SDKを
+process外のstdio MCP Serverを提供します。MCP toolはplugin SDKを
 直接呼ばず、HTTP APIと同じvalidation、EditorGate、エラー境界を通ります。read toolは
 引数を持たない `get_current_scene`、`get_current_timeline`、
-`list_current_objects` とします。Phase 2・3でWindows実測済みのHTTP契約には、
-`move_object`、`delete_object`、`create_text_object`、`duplicate_object`、
-`create_media_object`を1対1で対応させます。MCP専用mutationや汎用operation toolは
+`list_current_objects`、`list_current_object_details` です。Windows実測済みの
+HTTP契約には、`move_object`、`delete_object`、`create_text_object`、
+`update_text_object`、`duplicate_object`、`create_media_object`を1対1で対応させます。
+MCP専用mutationや汎用operation toolは
 追加しません。
 MCP wire処理は公式Rust SDKに委ね、`2026-07-28`の`server/discover` lifecycleと
 legacy `initialize` lifecycleの両方を受け付けます。tool schemaはJSON Schema
@@ -94,8 +95,8 @@ text種別を識別できても本文項目の取得に失敗した1件は`kind:
 - plugin破棄時はlistenerを閉じ、全workerをjoinしてから破棄を完了する
 - Windows未実測の挙動を保証済みと記述しない
 
-Phase 1の間は固定loopback port 7890と単一AviUtl2 instanceというPhase 0の制約を
-維持します。複数instanceや外部hostからの接続は対象外です。動的port、session
+固定loopback port 7890と単一AviUtl2 instanceという制約を維持します。複数instanceや
+外部hostからの接続は対象外です。動的port、session
 discovery、認証は必要性が生じた時点で一緒に設計します。
 port 7890をbindできない場合、plugin情報に `local API unavailable` と理由を表示し、API
 serverなしの無効状態でplugin初期化を完了します。AviUtl2 2.1.2ではplugin初期化から
@@ -103,7 +104,7 @@ errorを返した後のhost終了時にaccess violationを観測したため、h
 優先します。無効状態はAPI requestを受け付けず、次回のAviUtl2起動時に再bindを
 試みます。
 
-### 最初のレスポンス契約
+### readレスポンス契約
 
 `GET /v1/status` はpluginが保持するSDK非依存の値だけから次を返します。
 
@@ -219,7 +220,7 @@ poisonを解除し、後続requestで再利用します。
 
 Phase 1のHTTP serverはHost headerを必須とするHTTP/1.1 requestだけを受け付けます。
 
-## Phase 1の完了条件
+## Phase 1の完了記録
 
 - `status` と `current scene` のHTTP/CLI契約がtestで固定されている
 - `/phase0/read-section` が削除され、SDK経路が `EditorGate` に一本化されている
@@ -230,15 +231,15 @@ Phase 1のHTTP serverはHost headerを必須とするHTTP/1.1 requestだけを�
 - 長時間SDK呼出しを模した状態でも `/healthz` が応答する回帰testが通る
 - 次に追加するread対象の選定結果が `design.md` に記録されている
 
-## Phase 2まで禁止するもの
+## Phase 2開始時の境界
 
-write API、Undo、Redo、project保存は公開しません。edit section、部分失敗、
-revision、object identity、Undo単位をPhase 2の開始前に調査し、別の設計更新で
-解禁します。
-Phase 2の設計はv0.4の `inspect → validate → apply → verify` と、project epoch、
-scene、revision、対象を明示するwrite規律を出発点にします。
+Phase 1ではwrite API、Undo、Redo、project保存を公開せず、edit section、部分失敗、
+object identity、Undo単位を調査してからPhase 2のwrite APIを追加しました。公開済みの
+write APIは `inspect → validate → apply → verify` と、scene、対象snapshot、必要に応じた
+現在値を明示する規律を維持します。Undo、Redo、project保存は現在も公開しません。
 
-Draft v0.4は履歴資料 [`design-draft-v0.4.md`](design-draft-v0.4.md) として保持します。
+Draft v0.4は履歴資料
+[`history/design-draft-v0.4.md`](history/design-draft-v0.4.md)として保持します。
 
 ## Phase 2最小moveの設計
 

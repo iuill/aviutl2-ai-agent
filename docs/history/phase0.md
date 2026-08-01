@@ -464,9 +464,9 @@ Q1の並列・終了競合、Q3、Q4、Q5、`FreeLibrary` の順序は未検証�
 timeline、object identity、event、renderなどへAPIを広げる場合は、対応する未検証項目を
 その直前に調査します。
 長時間SDK呼出し中の `/healthz` 応答はPhase 0の未完了項目にはせず、SDK非依存経路を
-維持するPhase 1の回帰testとして [`design.md`](design.md) に移しました。
+維持するPhase 1の回帰testとして [`../design.md`](../design.md) に移しました。
 
-Phase 1の開始範囲とアーキテクチャ制約は [`design.md`](design.md) v0.5へ反映済みです。
+Phase 1の開始範囲とアーキテクチャ制約は [`../design.md`](../design.md) v0.5へ反映済みです。
 
 ### Phase 2 write API の開始条件
 

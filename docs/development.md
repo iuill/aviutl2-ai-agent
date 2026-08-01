@@ -49,9 +49,9 @@ Codex認証はホストの `~/.codex/auth.json` を共有します。GitHub CLI�
 必要はありません。コンテナ内でのログイン、ログアウト、アカウント切り替えは
 ホストにも反映されます。
 
-Windows VMのruntime smokeで使う接続設定は、ホストからDev Containerへread-onlyで
-共有します。ホスト、checkout、コンテナから見たcredentialsの配置規約は
-[`README.md`](../README.md#ローカルワークスペースとdev-container)を参照してください。
+Windows実機検証で使う接続設定は、必要に応じてホストからDev Containerへread-onlyで
+共有します。credentialsの作成・配置と接続先は公開文書へ固定せず、各環境の
+`AGENTS.local.md` とcredentials側のローカル手順で管理します。
 Dev Containerの設定を変更した後や、既存コンテナに反映する場合は `dc rebuild` を
 実行します。
 
@@ -75,7 +75,7 @@ Windows 成果物には Rust 1.88.0、`cargo-xwin` 0.19.2、静的リンクし�
 MSVC CRT を使用します。`aviutl2` は 0.41.0 に完全固定しています。
 Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`、
 `.devcontainer/Dockerfile` を、`cargo-xwin` を更新する場合は両Dockerfileを
-同時に変更します。あわせて `docs/phase0.md` に記録した互換性チェックを
+同時に変更します。あわせて `docs/history/phase0.md` に記録した互換性チェックを
 実施してください。
 
 CIの `cross-build` jobは、Dockerfileの `dependencies` stageをGitHub Actions
@@ -85,22 +85,16 @@ cacheの `cross-build` scopeへ保存します。このstageは固定toolchain�
 crateの追加、削除、移動や `build.rs` の追加時は、Dockerfileの `dependencies`
 stageにあるmanifest、仮source、build scriptのCOPYと生成処理も更新してください。
 
-2026-07-28のGitHub Actions run `30363597980` では、初回cache作成に7分2秒、
-同じcommitのwarm cacheで26秒かかりました。一方、全build layerをcacheへ保存する
-最初の方式はsource変更後に4分28秒かかりました。このため、実際のbuild結果はcacheへ
-exportせず、依存stageだけを保存する構成にしています。cacheは性能最適化だけに使用し、
-成果物の正しさや再現性の根拠にはしません。依存stageを初めて作成したrun
-`30365033771` は4分40秒でした。そのcacheを使った文書変更run
-`30365461282` は1分21秒、Rust source変更run `30365617118` は1分13秒で、
-source変更時も2分未満という目標を満たしました。
+実際のbuild結果はcacheへexportせず、依存stageだけを保存します。cacheは性能最適化に
+のみ使用し、成果物の正しさや再現性の根拠にはしません。
 
-## Phase 1 の境界
+## 実装境界
 
-固定loopback port 7890と単一AviUtl2 instanceという制約を維持し、
-`docs/design.md` v0.5に記載された `status`、current scene、current timeline、
-current object snapshotだけを公開します。
-read対象を追加する場合は設計のPhase 1範囲を同じPRで更新します。Undoや部分失敗など
-write固有の調査はPhase 2の開始条件とします。
+固定loopback port 7890と単一AviUtl2 instanceという制約を維持します。公開APIの範囲と
+安全境界は [`design.md`](design.md)を正とし、readまたはwrite契約を変更する場合は
+同じPRで設計文書を更新します。Windowsで未検証のSDK挙動へ依存する機能は、実装前に
+調査し、環境、ビルド元、再現手順、観測結果を [`compatibility.md`](compatibility.md)
+または [`history/phase0.md`](history/phase0.md)へ記録します。
 
 ## GitHub-hosted Windows runtime spike
 
@@ -112,7 +106,7 @@ keyにしたGitHub Actions cacheへ保存します。cache miss時だけ公式�
 アクセスし、cacheから復元した場合も使用前にSHA-256を再検証します。
 プログラム本体をリポジトリやworkflow artifactへ保存しません。
 
-このworkflowは、AviUtl2の起動、Phase 1 pluginのロード、`health`、
+このworkflowは、AviUtl2の起動、pluginのロード、`health`、
 `status`、`current-scene`、`current-timeline`、`current-objects` に加え、idle TCP
 clientを接続した状態での正常終了、全HTTP workerのjoin、終了後のport 7890再bindを
 検査します。
@@ -123,7 +117,7 @@ GitHub-hosted runnerのGPU、DirectX、対話desktop、AviUtl2の初回確認が
 満たすか自体も検証対象です。
 CIの必須チェックやpush triggerにはせず、手動実行でだけ起動します。
 
-## Read-only MCP
+## MCP Server
 
 MCP serverはAviUtl2 process外でstdio serverとして起動し、既定では
 `http://127.0.0.1:7890` のplugin APIを使います。
@@ -132,17 +126,26 @@ MCP serverはAviUtl2 process外でstdio serverとして起動し、既定では
 cargo run -p aviutl2-ai-agent-mcp
 ```
 
-別endpointを使うローカルtestでは `--endpoint` を指定できます。MCP toolはHTTP APIを
-迂回せず、現時点ではcurrent scene、current timeline、current object snapshotの
-readだけを公開します。公式Rust SDK `rmcp` がMCP `2026-07-28`とlegacy lifecycleの
-version negotiation、JSON-RPC error、notificationを処理します。unit testでは
-`server/discover`と`initialize`の両方を実際のstdio framingで検証します。
+別endpointを使うローカルtestでは `--endpoint` を指定できます。MCP Serverは4つの
+read toolと6つのwrite toolを公開し、いずれもHTTP APIのvalidation、EditorGate、
+エラー契約を迂回しません。toolの一覧とCodexへの登録方法は
+[`README.md`](../README.md#codexからmcpで使う)を参照してください。
+
+公式Rust SDK `rmcp` がMCP `2026-07-28`とlegacy lifecycleのversion negotiation、
+JSON-RPC error、notificationを処理します。testでは `server/discover` と `initialize` の
+両方を実際のstdio framingで検証します。
 
 ## Mutation debug log
 
 Windowsで`AVIUTL2_AI_AGENT_MUTATION_DEBUG_LOG`に出力先を指定すると、media createの
 末尾file nameと成否をJSON Linesで記録します。full pathは記録しません。file nameにも
 個人情報が含まれ得るため、問題調査時だけ明示的に有効化してください。
+
+## Lifecycle diagnostic log
+
+Windowsで `AVIUTL2_AI_AGENT_LIFECYCLE_LOG` に出力先を指定すると、API Serverの起動失敗、
+plugin終了、HTTP workerのjoin結果をJSON Linesで記録します。旧名の
+`AVIUTL2_AI_AGENT_PHASE1_LIFECYCLE_LOG` は使用できません。
 
 ## HTTP diagnostic log
 
