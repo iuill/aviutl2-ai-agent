@@ -302,7 +302,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "list_current_object_detailsが返した完全snapshotと現在本文をそのまま使い、text objectの本文を更新します。自動再試行しないでください。",
+        description = "list_current_object_detailsが返した現在のobject IDを使い、text objectの本文、font、size、XYZ位置、色を更新します。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = true,

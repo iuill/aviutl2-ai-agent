@@ -42,7 +42,7 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Move one object identified by its complete current snapshot.
+    /// Move one object identified by its current opaque ID.
     MoveObject {
         #[arg(long)]
         expected_scene_name: String,
@@ -53,7 +53,7 @@ enum Command {
         #[arg(long)]
         destination_start_frame: u64,
     },
-    /// Delete one object identified by its complete current snapshot.
+    /// Delete one object identified by its current opaque ID.
     DeleteObject {
         #[arg(long)]
         expected_scene_name: String,
@@ -73,7 +73,7 @@ enum Command {
         #[arg(long)]
         text: String,
     },
-    /// Update one text object after matching its snapshot and current text.
+    /// Update typed properties of one text object identified by its current ID.
     UpdateText {
         #[arg(long)]
         expected_scene_name: String,
