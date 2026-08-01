@@ -49,6 +49,12 @@ Codex認証はホストの `~/.codex/auth.json` を共有します。GitHub CLI�
 必要はありません。コンテナ内でのログイン、ログアウト、アカウント切り替えは
 ホストにも反映されます。
 
+Windows VMのruntime smokeで使う接続設定は、ホストからDev Containerへread-onlyで
+共有します。ホスト、checkout、コンテナから見たcredentialsの配置規約は
+[`README.md`](../README.md#ローカルワークスペースとdev-container)を参照してください。
+Dev Containerの設定を変更した後や、既存コンテナに反映する場合は `dc rebuild` を
+実行します。
+
 ## 必須チェック
 
 正規ビルドは Docker で実行します。

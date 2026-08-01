@@ -53,12 +53,22 @@ readを候補とし、current以外のsceneを推測で選択するAPIは公開�
 Phase 3までの実施順序は [`roadmap.md`](roadmap.md)で管理します。
 
 Phase 1.5ではprocess外のstdio MCP serverを追加します。MCP toolはplugin SDKを
-直接呼ばず、HTTP APIと同じvalidation、EditorGate、エラー境界を通ります。最初の
-toolは引数を持たない `get_current_scene`、`get_current_timeline`、
-`list_current_objects` に限定し、write toolは含めません。
+直接呼ばず、HTTP APIと同じvalidation、EditorGate、エラー境界を通ります。read toolは
+引数を持たない `get_current_scene`、`get_current_timeline`、
+`list_current_objects` とします。Phase 2・3でWindows実測済みのHTTP契約には、
+`move_object`、`delete_object`、`create_text_object`、`duplicate_object`、
+`create_media_object`を1対1で対応させます。MCP専用mutationや汎用operation toolは
+追加しません。
 MCP wire処理は公式Rust SDKに委ね、`2026-07-28`の`server/discover` lifecycleと
 legacy `initialize` lifecycleの両方を受け付けます。tool schemaはJSON Schema
 2020-12としてSDKから生成し、独自JSON-RPC parserは持ちません。
+
+write toolは1 call 1 operationで、同じ引数を自動再送しません。HTTP APIの
+`mutation_outcome_unknown`を含むcode、message、retryableをtool errorへ保持し、同codeでは
+`list_current_objects`による実状態の再取得を案内します。annotationはread toolを
+read-only、create系をadditive、既存objectを変更または削除するtoolをdestructiveとして
+宣言し、全write toolをnon-idempotentかつclosed-worldとします。承認promptの最終判断は
+MCP clientに委ねます。
 
 ## 実装境界
 

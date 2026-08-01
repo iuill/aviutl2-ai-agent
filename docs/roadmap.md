@@ -67,19 +67,21 @@ object identity、project再読込時の無効化、eventとの関係は
 current以外のsceneを明示するAPIは、sceneを安全に選択・列挙できる根拠が得られるまで
 公開しません。
 
-### 1.5: Read-only MCP
+### 1.5: MCP
 
-状態: **scene / timeline / object一覧toolを実装**
+状態: **read評価とPhase 2・3 write parityの実装・Windows実利用確認完了**
 
 HTTP/CLIのread契約を実利用で評価できる段階で、AviUtl2 process外のstdio serverとして
-追加します。最初はproject/scene、object、必要ならframeの最大3 toolに絞ります。
-MCPはpluginのvalidationを迂回せず、write toolを含めません。
+追加します。readはproject/scene、object、必要ならframeの最大3 toolに絞ります。
+Windows実測済みのPhase 2・3 write契約は1対1のtoolとして追加し、MCP専用mutationや
+汎用operation toolは設けません。MCPはpluginのvalidationを迂回しません。
 stdio transportは公式Rust SDKを使い、MCP `2026-07-28`とlegacy lifecycleを
 両方サポートします。
 
 完了条件:
 
 - Codexからread-only toolを呼び出せる
+- Codexからwrite toolを呼び出し、作成・移動・複製・削除をread-backで確認できる
 - object一覧の情報量とページング方針を実利用で評価できる
 - 画像を扱う場合はbase64サイズと既定縮小幅を実測できる
 - MCP SDK更新後のWindows x64 binaryをnative実行し、stdio tool呼出しを確認できる
@@ -87,6 +89,21 @@ stdio transportは公式Rust SDKを使い、MCP `2026-07-28`とlegacy lifecycle�
 最後の項目は正規cross-buildとは別の合格条件です。`rmcp` 3.0.1への移行後、Linuxの
 stdio integration testに加え、Windows native CIでrelease binaryを起動し、modernと
 legacyの両lifecycleを確認しています。
+
+Codexでの実利用評価は、同じtimeline状態に対して3 toolを1回ずつ呼び出し、成功可否、
+object件数、応答のおおよその文字数、判断に不足したmetadataを記録します。小規模な
+fixtureだけでページング要否を決めず、実利用で一覧の冗長さが問題になった場合に限って
+契約を設計します。登録・切り分け手順は [`README.md`](../README.md) に記載します。
+2026-08-01に空のRootと20 objectの一時fixtureで3 toolのCodex実利用評価を完了しました。
+20件のobject一覧は1,981文字で、配置の要約に支障がなかったため、現時点ではページングを
+追加しません。不足したmetadataは具体的な操作taskで必要性を評価してからread契約を
+設計します。実測条件と結果は
+[`docs/compatibility.md`](compatibility.md#2026-08-01-codexからのread-only-mcp実利用評価)
+に記録します。
+
+Windows実測済みのPhase 2・3 HTTP/CLI契約へ1対1で対応する5つのwrite toolを追加しました。
+MCP専用のmutation契約やbatchは作らず、既存のvalidation、EditorGate、エラー契約を
+そのまま使います。write annotationとCodexからの実操作もWindowsで確認済みです。
 
 ## Phase 2: 既存objectの最小write
 
@@ -146,6 +163,11 @@ batchを導入する場合はoperation間で `EditorGate` を解放しません�
 SDKの観測なしに保証せず、部分失敗が残る場合は契約上明示します。tool call回数、
 処理時間、操作間の競合、Undo単位のいずれかが単一操作では問題になることを、導入判断の
 根拠とします。
+
+2026-08-01のCodex実利用評価では、字幕5件を5回の単一`create-text`で作成し、約60秒で
+1回のobject一覧検証まで完了しました。この規模ではbatchを必要とする支障は観測して
+いません。むしろ一覧からtext本文とobject種別を再検証できないことが具体的な不足として
+残ったため、複数operationより先にread要件を評価します。
 
 ## 全Phaseで維持する境界
 
