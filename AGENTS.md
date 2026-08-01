@@ -51,7 +51,7 @@ MCPのread/write tool、型別object details、text properties update、current 
 - SDK の型を将来の HTTP 契約へ漏らさない。
 - 固定している Rust toolchain、`aviutl2` crate、`cargo-xwin` などを更新する場合は、
   `docs/development.md` に記載された互換性チェックを行い、結果を記録する。
-- `dist/` の成果物は手編集せず、正規ビルドで生成する。
+- `dist/` の成果物は手編集せず、Dockerの配布用ビルドで生成する。
 
 ## リリース
 
@@ -74,7 +74,7 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 ```
 
-正規ビルド:
+配布用ビルド:
 
 ```bash
 docker build --output type=local,dest=dist .

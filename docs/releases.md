@@ -25,7 +25,7 @@ plugin情報に12桁の短縮hashを併記します。HTTPの`pluginVersion`は�
 2. `Cargo.toml`のworkspace versionを更新し、Cargo.lockを更新します。
 3. `CHANGELOG.md`の`Unreleased`を新versionへ移し、tag予定日が確定してからrelease日を記録します。
 4. `docs/compatibility.md`など、現行versionを示す文書を更新します。
-5. 通常のRust checkと正規Docker buildを実行します。
+5. 通常のRust checkと配布用Docker buildを実行します。
 6. SDK依存の挙動を変更した場合は、Windows実機結果も同じPRへ記録します。
 7. PRのCIとreviewが完了したらmainへmergeします。
 
@@ -49,7 +49,7 @@ git push origin v0.1.0
 ```
 
 `Release` workflowはtag、workspace version、main上のcommitであることを検証してから、
-正規Docker buildを実行します。成功すると次をGitHub Releaseへ配置します。
+配布用Docker buildを実行します。成功すると次をGitHub Releaseへ配置します。
 
 - `aviutl2-ai-agent-vX.Y.Z-windows-x64.zip`
 - `aviutl2-ai-agent-vX.Y.Z-windows-x64.zip.sha256`

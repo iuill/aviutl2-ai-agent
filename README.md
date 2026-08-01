@@ -49,8 +49,8 @@ $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw "SHA-256 mismatch: $archive" }
 ```
 
-checksum確認後にzipを展開してください。sourceからの正規ビルドと成果物については
-[`docs/development.md`](docs/development.md#正規ビルド)を参照してください。
+checksum確認後にzipを展開してください。sourceからのbuildと成果物については
+[`docs/development.md`](docs/development.md#配布用ビルド)を参照してください。
 
 ## Windowsで使う
 
@@ -174,7 +174,7 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 ```
 
-Dev Container、依存更新、正規ビルド、診断ログについては
+Dev Container、依存更新、配布用ビルド、診断ログについては
 [`docs/development.md`](docs/development.md)を参照してください。
 releaseのversion更新、tag、GitHub Releaseについては
 [`docs/releases.md`](docs/releases.md)を参照してください。
