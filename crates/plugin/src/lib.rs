@@ -6,6 +6,17 @@ mod server;
 
 pub use server::{ApiServer, ServerError};
 
+#[cfg_attr(not(windows), allow(dead_code))]
+fn build_label(version: &str, commit: Option<&str>) -> String {
+    match commit.filter(|commit| !commit.is_empty()) {
+        Some(commit) => format!(
+            "{version} ({})",
+            commit.chars().take(12).collect::<String>()
+        ),
+        None => version.to_owned(),
+    }
+}
+
 #[cfg(windows)]
 mod windows_plugin {
     use std::{
@@ -49,15 +60,15 @@ mod windows_plugin {
         }
 
         fn plugin_info(&self) -> GenericPluginTable {
+            let build = crate::build_label(
+                env!("CARGO_PKG_VERSION"),
+                option_env!("AVIUTL2_AI_AGENT_BUILD_COMMIT"),
+            );
             let information = match &self.api_start_error {
-                Some(error) => format!(
-                    "aviutl2-ai-agent {} — local API unavailable: {error}",
-                    env!("CARGO_PKG_VERSION")
-                ),
-                None => format!(
-                    "aviutl2-ai-agent {} — local structured API",
-                    env!("CARGO_PKG_VERSION")
-                ),
+                Some(error) => {
+                    format!("aviutl2-ai-agent {build} — local API unavailable: {error}")
+                }
+                None => format!("aviutl2-ai-agent {build} — local structured API"),
             };
             GenericPluginTable {
                 name: "aviutl2-ai-agent".to_owned(),
@@ -165,3 +176,16 @@ mod windows_plugin {
 #[cfg(not(windows))]
 #[unsafe(no_mangle)]
 pub extern "C" fn aviutl2_ai_agent_placeholder() {}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn build_label_keeps_semver_and_adds_a_short_commit_when_available() {
+        assert_eq!(super::build_label("0.1.0", None), "0.1.0");
+        assert_eq!(super::build_label("0.1.0", Some("")), "0.1.0");
+        assert_eq!(
+            super::build_label("0.1.0", Some("0123456789abcdef")),
+            "0.1.0 (0123456789ab)"
+        );
+    }
+}

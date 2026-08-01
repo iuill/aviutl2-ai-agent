@@ -272,33 +272,33 @@ mod tests {
     fn health_round_trip_uses_camel_case() {
         let health = Health {
             status: HealthStatus::Ok,
-            plugin_version: "0.0.1".into(),
+            plugin_version: "0.1.0".into(),
         };
         let json = serde_json::to_string(&health).unwrap();
-        assert_eq!(json, r#"{"status":"ok","pluginVersion":"0.0.1"}"#);
+        assert_eq!(json, r#"{"status":"ok","pluginVersion":"0.1.0"}"#);
         assert_eq!(serde_json::from_str::<Health>(&json).unwrap(), health);
     }
 
     #[test]
     fn health_accepts_unknown_fields_for_forward_compatibility() {
-        let json = r#"{"status":"ok","pluginVersion":"0.0.1","surprise":true}"#;
+        let json = r#"{"status":"ok","pluginVersion":"0.1.0","surprise":true}"#;
         let health = serde_json::from_str::<Health>(json).unwrap();
         assert_eq!(health.status, HealthStatus::Ok);
-        assert_eq!(health.plugin_version, "0.0.1");
+        assert_eq!(health.plugin_version, "0.1.0");
     }
 
     #[test]
     fn phase1_responses_use_stable_field_names() {
         let status = Status {
             status: HealthStatus::Ok,
-            plugin_version: "0.0.1".into(),
+            plugin_version: "0.1.0".into(),
             api_version: "v1".into(),
             listener_address: "127.0.0.1:7890".into(),
             process_id: 42,
         };
         assert_eq!(
             serde_json::to_string(&status).unwrap(),
-            r#"{"status":"ok","pluginVersion":"0.0.1","apiVersion":"v1","listenerAddress":"127.0.0.1:7890","processId":42}"#
+            r#"{"status":"ok","pluginVersion":"0.1.0","apiVersion":"v1","listenerAddress":"127.0.0.1:7890","processId":42}"#
         );
 
         let scene = CurrentScene {
@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn phase1_responses_accept_unknown_fields() {
         let status = serde_json::from_str::<Status>(
-            r#"{"status":"ok","pluginVersion":"0.0.1","apiVersion":"v1","listenerAddress":"127.0.0.1:7890","processId":42,"future":true}"#,
+            r#"{"status":"ok","pluginVersion":"0.1.0","apiVersion":"v1","listenerAddress":"127.0.0.1:7890","processId":42,"future":true}"#,
         )
         .unwrap();
         assert_eq!(status.process_id, 42);
