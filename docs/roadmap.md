@@ -175,6 +175,11 @@ unknownだけを公開します。text updateは完全snapshotと期待する現
 detailsは現在のsceneの全objectを一括で返し、kindやlayerによるfilterは持ちません。長尺の
 実projectで応答量が問題になった場合に、実測した利用条件に基づいてfilterを設計します。
 
+project本体の読み込み、名前を付けて保存、上書き保存は、現行Plugin SDKに実行APIが
+ないため候補へ含めません。SDKへ正式なhost操作APIが追加された場合、またはUI Automationを
+別の安全性境界として採用する具体的な必要性が生じた場合に再評価します。SDK上の制約は
+[`design.md`](design.md#project保存読み込みのsdk制約)に記録します。
+
 ## 全Phaseで維持する境界
 
 - SDK pointer、handle、enumをHTTP DTOへ出さない

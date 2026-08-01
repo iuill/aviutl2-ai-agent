@@ -19,6 +19,8 @@ Rustで実装しています。AviUtl2公式のプロジェクトではありま
 すべての変更は1要求につき1件です。APIはプロジェクトを保存せず、Undo / Redo、batch、
 汎用effect編集は公開しません。固定の `127.0.0.1:7890` を使う単一AviUtl2 instance向けで、
 外部hostからの接続や複数instanceの探索には対応していません。
+project本体の保存・読み込みはPlugin SDKに実行APIがないため未対応です。詳細は
+[`docs/design.md`](docs/design.md#project保存読み込みのsdk制約)を参照してください。
 
 ## アーキテクチャ
 

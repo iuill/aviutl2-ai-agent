@@ -379,3 +379,23 @@ Undo単位はPhase 4以降へ先送りします。tool call回数や処理時間
 任意のeffect名や項目schemaを受け取る汎用APIもPhase 4以降とします。追加する場合は
 SDK型やraw aliasをHTTPへ漏らさず、Windowsで観測したeffectごとのversion付き契約を
 先に定義します。
+
+## project保存・読み込みのSDK制約
+
+AviUtl2 2.1.2 Plugin SDKと、固定している`aviutl2` / `aviutl2-sys` 0.41.0には、
+project本体の保存・読み込みを実行するAPIがありません。確認できるproject関連機能は
+次の範囲です。
+
+- 現在のproject file pathの取得
+- project load直後とsave直前のcallback登録
+- project file内にプラグイン固有の文字列・binary dataを読み書きする機能
+
+`ProjectFile::set_param_string`などはプラグイン固有データをprojectへ格納する機能であり、
+project本体をdiskへ保存する命令ではありません。指定pathの読み込み、名前を付けて保存、
+上書き保存、未保存変更の照会、保存・読み込み結果の取得に対応するSDK関数は確認できません。
+
+このため、project本体の保存・読み込みはHTTP、CLI、MCPへ公開しません。AviUtl2のmenuや
+file dialogを操作するUI AutomationはSDK APIと異なる安全性・安定性境界になるため、
+現行pluginの代替実装として暗黙に採用しません。将来SDKに正式なhost操作APIが追加された
+場合、またはUI Automationを独立した機能として採用する具体的な利用要件が生じた場合に、
+未保存変更、確認dialog、取消し、完了判定を含む契約を改めて設計します。
