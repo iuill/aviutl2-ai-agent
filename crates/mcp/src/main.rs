@@ -221,15 +221,13 @@ impl Aviutl2Mcp {
         &self,
         Parameters(_): Parameters<EmptyParams>,
     ) -> Result<CallToolResult, McpError> {
-        Ok(
-            match get_bytes(&self.endpoint, "/v1/scenes/current/frame") {
-                Ok(bytes) => CallToolResult::success(vec![ContentBlock::image(
-                    base64::engine::general_purpose::STANDARD.encode(bytes),
-                    "image/png",
-                )]),
-                Err(message) => CallToolResult::error(vec![ContentBlock::text(message)]),
-            },
-        )
+        Ok(match get_current_frame_bytes(&self.endpoint) {
+            Ok(bytes) => CallToolResult::success(vec![ContentBlock::image(
+                base64::engine::general_purpose::STANDARD.encode(bytes),
+                "image/png",
+            )]),
+            Err(message) => CallToolResult::error(vec![ContentBlock::text(message)]),
+        })
     }
 
     #[tool(
@@ -416,8 +414,11 @@ fn get<T: DeserializeOwned + serde::Serialize>(
     decode_response::<T>(&mut response)
 }
 
-fn get_bytes(base_endpoint: &str, path: &str) -> Result<Vec<u8>, String> {
-    let endpoint = format!("{}{path}", base_endpoint.trim_end_matches('/'));
+fn get_current_frame_bytes(base_endpoint: &str) -> Result<Vec<u8>, String> {
+    let endpoint = format!(
+        "{}/v1/scenes/current/frame",
+        base_endpoint.trim_end_matches('/')
+    );
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .timeout_global(Some(CURRENT_FRAME_TIMEOUT))
