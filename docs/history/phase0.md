@@ -298,18 +298,24 @@ rollback、Undo単位を指定するAPIは見つかりませんでした。従�
 
 ## Q3 — フレームレンダリング
 
-状態：**繰延（frame read API追加前）**
+状態：**通常状態のcurrent frame取得を実測済み、特殊状態と負荷条件は繰延**
 
-- [ ] 明示したscene/frameをレンダリングする
+- [x] current sceneの現在frameをレンダリングする
 - [ ] 呼び出し元とcallbackのスレッドを記録する
-- [ ] callbackから戻る前にpixelを所有bufferへコピーする
-- [ ] pixel format、pitch、alpha、bufferの寿命を記録する
+- [x] callbackから戻る前にpixelを所有bufferへコピーする
+- [x] RGBA 8-bit、pitch、callback中だけのbuffer寿命をSDK定義と実機で確認する
 - [ ] レンダリング解像度を指定できるか確認する
 - [ ] 再生中、出力中、modal dialog表示中にレンダリングする
 - [ ] 連続呼び出しと大解像度で計測する
 - [ ] キャンセル方法を確認する
 
-> 未検証
+2026-08-01にWindows Server 2022 + AviUtl2 2.1.2で、generic
+`rendering_scene_video`へcursor frame 0を要求しました。callbackからwidth、height、pitchと
+RGBA bufferを所有領域へコピーし、PNGへencodeした結果、CLIでPNG signatureを持つ画像を
+保存できました。MCP `get_current_frame`もCodexから1回呼び、image contentとして認識して
+内容を説明できました。SDKの`wait_rendering_task`はread/edit callback内でdeadlockする
+可能性が明記されているためHTTP workerでは呼ばず、plugin終了時にworker join後のtask完了
+待ちだけに使います。任意scene、解像度指定、特殊状態、連続負荷、cancelは未検証です。
 
 ## Q4 — editor のbusy状態
 

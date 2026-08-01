@@ -343,3 +343,19 @@ accept後のsocketを明示的にblockingへ戻してからread/write timeoutを
 古いsnapshotの再送、duplicate、配置競合、delete、削除済みsnapshotの再送、作成競合、
 UI Undo/Redoを実行しました。期待どおり200、404、409へ分岐し、計68接続の診断ログに
 I/O失敗はありませんでした。
+
+## 2026-08-01 object ID、型別設定、current frameの実機確認
+
+正規Linux cross-build成果物をWindows Server 2022 + AviUtl2 2.1.2へ配置し、保存しない
+text、PNG、WAV fixtureを作成しました。objects/detailsのIDは同じ状態で一致しました。
+textをIDで指定し、本文、font、size、XYZ位置、色を1回で更新すると全項目のread-backが
+一致し、更新後は新しいIDが返りました。更新前IDの再送はmutation前の404になりました。
+
+image detailsでは素材path、表示番号、再生速度、loop、連番設定を、audio detailsでは
+素材path、再生位置、再生速度、track、loop設定を取得しました。layerの表示・lockと、
+text/image/audioが持つ各effectの有効・lock状態も取得できました。
+
+cursor frame 0をrenderし、CLIで保存したファイルがPNG signatureを持つことを確認しました。
+同じMCP binaryをCodex CLI 0.146.0へ登録し、`gpt-5.6-luna`、reasoning effort `high`で
+`get_current_frame`を1回呼んだところ、image contentを取得して画面内容を説明できました。
+検証後にAviUtl2を終了し、一時WAVとPNGを削除しました。

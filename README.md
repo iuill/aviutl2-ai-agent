@@ -60,6 +60,7 @@ dist\aviutl2-agent.exe status
 dist\aviutl2-agent.exe current-scene
 dist\aviutl2-agent.exe current-timeline
 dist\aviutl2-agent.exe current-object-details
+dist\aviutl2-agent.exe current-frame --output current-frame.png
 ```
 
 CLIの全commandは次で確認できます。
@@ -70,28 +71,30 @@ dist\aviutl2-agent.exe --help
 
 ### 既存textの更新例
 
-最初に `current-object-details` で本文と完全なsnapshotを読み、その値を事前条件として
-1件だけ更新します。
+最初に `current-object-details` で対象の `object.id` を読み、そのIDで1件だけ更新します。
+IDはproject load世代、scene、配置、設定内容に結び付く一時的な参照です。
 
 ```powershell
 dist\aviutl2-agent.exe update-text `
   --expected-scene-name Root `
-  --layer 2 --start-frame 300 --end-frame 389 `
-  --expected-text "修正前" --text "修正後"
+  --object-id obj-0123456789abcdef `
+  --text "修正後" --font Arial --size 48.00 `
+  --x 12.00 --y=-8.00 --z 0.00 --color ff0000
 ```
 
-`expected-text` は取得した本文を正規化せず、そのまま指定します。現在の作成・更新APIは
-CR、LF、NULを含む新しい本文を拒否するため、複数行textには対応していません。
+更新後やtimeline上の移動後はIDが変わります。古いIDは再利用せずdetailsを読み直します。
+現在の作成・更新APIはCR、LF、NULを含む新しい本文を拒否するため、複数行textには
+対応していません。
 
 ### object操作の例
 
-既存objectの移動、削除、複製では、直前のobject一覧またはdetailsで得た完全なsnapshotを
-指定します。古いsnapshotや一致しないsceneを指定した場合は変更しません。
+既存objectの移動、削除、複製では、直前のobject一覧またはdetailsで得たIDを指定します。
+古いIDや一致しないsceneを指定した場合は変更しません。
 
 ```powershell
 dist\aviutl2-agent.exe move-object `
   --expected-scene-name Root `
-  --layer 0 --start-frame 10 --end-frame 39 --name Title `
+  --object-id obj-0123456789abcdef `
   --destination-layer 2 --destination-start-frame 100
 
 dist\aviutl2-agent.exe create-text `
@@ -104,8 +107,9 @@ dist\aviutl2-agent.exe create-media `
   --layer 1 --start-frame 100 --length 90
 ```
 
-media pathはcallerが管理する既存のWindows絶対pathに限ります。APIは専用media rootを
-設けず、素材pathをread APIで返しません。変更はAviUtl2のedit sectionで実行しますが、
+media pathはcallerが管理する既存のWindows絶対pathに限ります。detailsは既存素材を
+編集判断へ使えるようpathと再生設定を返すため、応答を外部へ転送しないでください。
+変更はAviUtl2のedit sectionで実行しますが、
 API自身はUndoせず、プロジェクトも保存しません。
 
 接続できない場合は、まず `health` でHTTP APIを切り分けます。port 7890を別processが
@@ -123,7 +127,7 @@ codex mcp add aviutl2 -- $mcpServer
 codex mcp list
 ```
 
-Codexを再起動し、`/mcp` で `aviutl2` と次の10 toolを確認します。
+Codexを再起動し、`/mcp` で `aviutl2` と次の11 toolを確認します。
 
 | 読み取り | 変更 |
 |---|---|
@@ -131,7 +135,7 @@ Codexを再起動し、`/mcp` で `aviutl2` と次の10 toolを確認します�
 | `get_current_timeline` | `delete_object` |
 | `list_current_objects` | `create_text_object` |
 | `list_current_object_details` | `update_text_object` |
-|  | `duplicate_object` |
+| `get_current_frame` | `duplicate_object` |
 |  | `create_media_object` |
 
 例えば、次のように依頼できます。

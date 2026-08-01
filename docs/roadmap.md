@@ -52,7 +52,7 @@ IDの寿命を実測できなければ公開せず、内部の観測値に留め
 
 ### 1C: current sceneのtimeline / object read
 
-状態: **timeline概要、object一覧、object detailsを実装・実機確認済み**
+状態: **timeline概要、object一覧、型別details、current frameを実装・実機確認済み**
 
 current scene identityの扱いを決めた後、利用価値を確認しながら次を1種類ずつ
 追加します。
@@ -60,11 +60,12 @@ current scene identityの扱いを決めた後、利用価値を確認しなが�
 1. projectの観測可能なmetadata
 2. [完了] current sceneのtimeline概要
 3. [一覧実装済み] object一覧と個別取得
-4. effectの列挙と取得できるmetadata
+4. [完了] text/media設定とlayer/effect状態
+5. [通常状態完了] current frame画像
 
-object identity、project再読込時の無効化、eventとの関係は
-`history/phase0.md` Q5を追加調査してから契約化します。frame readはQ3を完了してから
-追加します。
+objectにはproject load世代、scene、配置、内部aliasを材料とするopaqueな一時IDを付け、
+永続identityとしては扱いません。frame readの特殊状態と負荷条件は`history/phase0.md` Q3に
+未検証事項として残します。
 current以外のsceneを明示するAPIは、sceneを安全に選択・列挙できる根拠が得られるまで
 公開しません。
 
@@ -85,7 +86,7 @@ stdio transportは公式Rust SDKを使い、MCP `2026-07-28`とlegacy lifecycle�
 - Codexからread-only toolを呼び出せる
 - Codexからwrite toolを呼び出し、作成・移動・複製・削除をread-backで確認できる
 - object一覧の情報量とページング方針を実利用で評価できる
-- 画像を扱う場合はbase64サイズと既定縮小幅を実測できる
+- [通常状態完了] MCP image contentとしてcurrent frameを取得できる
 - MCP SDK更新後のWindows x64 binaryをnative実行し、stdio tool呼出しを確認できる
 
 最後の項目は正規cross-buildとは別の合格条件です。`rmcp` 3.0.1への移行後、Linuxの
@@ -170,8 +171,8 @@ SDKの観測なしに保証せず、部分失敗が残る場合は契約上明�
 1回のobject一覧検証まで完了しました。この規模ではbatchを必要とする支障は観測して
 いません。むしろ一覧からtext本文とobject種別を再検証できないことが具体的な不足として
 残ったため、複数operationより先にobject details readと単一text updateを追加しました。
-既存snapshot一覧はmutation照合用として維持し、detailsでは実測済みのtext、image、audioと
-unknownだけを公開します。text updateは完全snapshotと期待する現在本文を要求します。
+既存object一覧は配置と一時IDの小さい契約として維持し、detailsでは実測済みのtext、
+image、audioとunknownだけを公開します。text updateは状態に結び付くIDとpatchを要求します。
 detailsは現在のsceneの全objectを一括で返し、kindやlayerによるfilterは持ちません。長尺の
 実projectで応答量が問題になった場合に、実測した利用条件に基づいてfilterを設計します。
 

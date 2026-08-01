@@ -4,7 +4,8 @@
 
 `aviutl2-ai-agent` は、AviUtl2をローカルの構造化APIから操作するための
 プロジェクトです。Phase 0のSDK技術スパイクとPhase 1から3の最小API実装は完了し、
-MCPのread/write toolの実利用確認、object details、text updateまで完了しています。
+MCPのread/write tool、型別object details、text properties update、current frame取得の
+実利用確認まで完了しています。
 現在は単一operation APIで不足する利用要件の確認を進めています。未検証の挙動は
 必要になる直前に追加調査します。
 

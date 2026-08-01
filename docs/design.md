@@ -31,19 +31,21 @@ GET /v1/scenes/current
 GET /v1/scenes/current/timeline
 GET /v1/scenes/current/objects
 GET /v1/scenes/current/objects/details
+GET /v1/scenes/current/frame
 ```
 
 - `/v1/status` はSDKを呼ばず、process、plugin、API、listenerなどplugin自身の状態を返す
 - `/v1/scenes/current` はread section内で現在sceneを読み、SDK型を含まないDTOを返す
 - `/v1/scenes/current/timeline` はcurrent sceneの編集情報を所有DTOへコピーして返す
 - `/v1/scenes/current/objects` はcurrent sceneのobject snapshotをhandleなしで返す
-- `/v1/scenes/current/objects/details` はsnapshot、公開種別、text本文を返す
+- `/v1/scenes/current/objects/details` はID、公開種別、状態、text/media設定を返す
+- `/v1/scenes/current/frame` は現在frameを `image/png` で返す
 - CLIには対応する `status`、`current-scene`、`current-timeline`、
-  `current-objects`、`current-object-details` がある
+  `current-objects`、`current-object-details`、`current-frame --output <path>` がある
 - `/healthz` はliveness専用として維持する
 
-effect、font、frame render、event recorder、project epoch、session discoveryは
-現在の公開範囲に含めません。利用価値を確かめ、必要なものを1種類ずつ追加します。
+汎用effect更新、event recorder、永続object identity、session discoveryは現在の公開範囲に
+含めません。利用価値を確かめ、必要なものを1種類ずつ追加します。
 
 最初のsliceの次に調べるread対象はcurrent scene identityです。`aviutl2` 0.41.0と
 Plugin SDK定義にはcurrent sceneのIDと名前がありますが、scene一覧の列挙APIは
@@ -55,7 +57,7 @@ Phase 3までの実施順序は [`roadmap.md`](roadmap.md)で管理します。
 process外のstdio MCP Serverを提供します。MCP toolはplugin SDKを
 直接呼ばず、HTTP APIと同じvalidation、EditorGate、エラー境界を通ります。read toolは
 引数を持たない `get_current_scene`、`get_current_timeline`、
-`list_current_objects`、`list_current_object_details` です。Windows実測済みの
+`list_current_objects`、`list_current_object_details`、`get_current_frame` です。Windows実測済みの
 HTTP契約には、`move_object`、`delete_object`、`create_text_object`、
 `update_text_object`、`duplicate_object`、`create_media_object`を1対1で対応させます。
 MCP専用mutationや汎用operation toolは
@@ -63,6 +65,15 @@ MCP専用mutationや汎用operation toolは
 MCP wire処理は公式Rust SDKに委ね、`2026-07-28`の`server/discover` lifecycleと
 legacy `initialize` lifecycleの両方を受け付けます。tool schemaはJSON Schema
 2020-12としてSDKから生成し、独自JSON-RPC parserは持ちません。
+
+### loopback HTTP契約の見直し
+
+object propertiesとframe追加時に契約全体を見直しました。current instance/current sceneを
+pathで固定し、1 request 1 operation、EditorGate、read-back、共通errorを共有する構成は
+維持します。汎用operation endpointやbatchは、型別validationとMCP tool schemaを弱めるため
+追加しません。対象指定だけは完全snapshotからopaqueな`objectId`へ置き換え、frameだけは
+JSON/base64ではなくHTTPの`image/png`を正とします。pluginとCLI/MCPは同一成果物として配る
+ため、旧request schemaへのfallbackは実装しません。
 
 write toolは1 call 1 operationで、同じ引数を自動再送しません。HTTP APIの
 `mutation_outcome_unknown`を含むcode、message、retryableをtool errorへ保持し、同codeでは
@@ -72,11 +83,12 @@ read-only、create系をadditive、既存objectを変更または削除するtoo
 MCP clientに委ねます。
 
 既存projectの内容に基づく編集用に、`GET /v1/scenes/current/objects/details` は
-各objectの既存snapshot、公開種別、text objectだけの本文を返します。公開種別は
+各objectの一時ID、配置、公開種別、状態と型別設定を返します。公開種別は
 Windowsで先頭effect名を実測した `text`、`image`、`audio` と、未分類の `unknown`です。
-raw effect名、alias、素材pathは返しません。従来のobject一覧はmutation requestへ渡す
-小さいsnapshot契約として維持し、detailsを混在させません。
-text種別を識別できても本文項目の取得に失敗した1件は`kind: text, text: null`へ降格し、
+raw aliasは返しません。textは本文、font、size、XYZ位置、色、mediaは素材pathと
+再生関連設定を返します。素材pathはagentが既存projectを理解するために必要ですが、
+機微情報になり得るためログへ記録しません。従来のobject一覧は小さい配置契約として維持し、
+detailsを混在させません。text設定の取得に失敗した1件は`kind: text, text: null`へ降格し、
 他objectのdetailsは返します。これは恒常的に読めない1件によって一覧全体をretryableな
 503にしないためです。先頭effect自体を取得できないobjectは`unknown`とします。
 
@@ -93,6 +105,7 @@ text種別を識別できても本文項目の取得に失敗した1件は`kind:
   pointer幅へ依存させない。SDKの`usize`との変換はplugin境界で検証する
 - event callbackから `call_edit_section` を呼ばない
 - plugin破棄時はlistenerを閉じ、全workerをjoinしてから破棄を完了する
+- 描画callbackが保持するDLL内closureを残さないよう、worker join後にrender task完了を待つ
 - Windows未実測の挙動を保証済みと記述しない
 
 固定loopback port 7890と単一AviUtl2 instanceという制約を維持します。複数instanceや
@@ -161,6 +174,7 @@ objectの存在有無を推測する用途には使いません。scene ID、SDK
 {
   "objects": [
     {
+      "id": "obj-0123456789abcdef",
       "layer": 0,
       "startFrame": 10,
       "endFrame": 39,
@@ -171,10 +185,15 @@ objectの存在有無を推測する用途には使いません。scene ID、SDK
 ```
 
 これは呼出時点のcurrent sceneのsnapshotです。`layer`、`startFrame`、`endFrame` は
-0始まりで、`endFrame` を含みます。この組を永続IDとは定義せず、scene切替や編集後も
-同じobjectを指すとは保証しません。raw handle、effect設定、file pathは返しません。
-Phase 2でobjectを変更する場合はlocatorと期待するsnapshotを同じedit section内で
-再検証し、0件または複数件なら変更しません。
+0始まりで、`endFrame` を含みます。`id` はproject load世代、scene、配置、名前と内部aliasを
+一方向hashしたopaqueな一時参照です。永続IDではなく、project再読込、移動、本文や設定の
+更新で失効します。mutationは同じedit section内で最新objectを列挙してIDを再計算し、
+0件またはhash衝突を含む複数件なら変更しません。raw handleとaliasは返しません。
+
+`GET /v1/scenes/current/frame` はtimelineの現在frameをRGBAで非同期renderし、callback中に
+所有bufferへコピーした後、PNGへencodeして返します。HTTP responseは `image/png`、CLIは
+指定pathへ保存し、MCPはimage content blockを返します。workerから
+`wait_rendering_task` は呼ばず、2秒以内にcallbackが来なければ503にします。
 
 DNS rebindingとbrowserからの単純なcross-origin GETを避けるため、Phase 1では
 `Host: 127.0.0.1:7890` 以外と、`Origin` headerを持つrequestを拒否します。
@@ -235,8 +254,8 @@ Phase 1のHTTP serverはHost headerを必須とするHTTP/1.1 requestだけを�
 
 Phase 1ではwrite API、Undo、Redo、project保存を公開せず、edit section、部分失敗、
 object identity、Undo単位を調査してからPhase 2のwrite APIを追加しました。公開済みの
-write APIは `inspect → validate → apply → verify` と、scene、対象snapshot、必要に応じた
-現在値を明示する規律を維持します。Undo、Redo、project保存は現在も公開しません。
+write APIは `inspect → validate → apply → verify` と、scene、対象ID、必要に応じた
+IDで読み取り時点の状態を照合する規律を維持します。Undo、Redo、project保存は現在も公開しません。
 
 Draft v0.4は履歴資料
 [`history/design-draft-v0.4.md`](history/design-draft-v0.4.md)として保持します。
@@ -248,7 +267,7 @@ Windows実測により、非event worker threadからedit sectionを呼べる一
 維持され、新規再作成では変わったため、公開identityには使いません。
 
 最初のwriteは既存objectのmoveだけを、1 request 1 mutationで実装します。requestは
-current scene名、対象の完全なsnapshot、移動先layerとstart frameを持ちます。処理全体を
+current scene名、対象object ID、移動先layerとstart frameを持ちます。処理全体を
 1回のEditorGate取得と1回のedit section内で次の順に実行します。
 
 ```
@@ -257,12 +276,7 @@ Content-Type: application/json
 
 {
   "expectedSceneName": "Root",
-  "target": {
-    "layer": 0,
-    "startFrame": 10,
-    "endFrame": 39,
-    "name": "Title"
-  },
+  "objectId": "obj-0123456789abcdef",
   "destination": {
     "layer": 2,
     "startFrame": 100
@@ -274,14 +288,14 @@ Content-Type: application/json
 拒否し、bodyは16 KiBを上限とします。
 
 1. current scene名がrequestの期待値と一致するか確認する
-2. layer、start、end、nameが完全一致するobjectを列挙する
+2. 最新状態から再計算したIDが一致するobjectを列挙する
 3. 一致が1件だけであることを確認する
 4. inclusiveな移動先範囲が他objectと重ならないことを確認する
 5. `move_object` を1回だけ呼ぶ
 6. 同じedit section内で移動後のlayerとframe範囲を再取得する
 7. 期待結果と一致した場合だけ成功responseを返す
 
-0件はnot found、複数件・scene不一致・snapshot変更・移動先競合はconflictとして
+0件はnot found、複数件・scene不一致・移動先競合はconflictとして
 mutation前に拒否します。frame計算overflowも拒否します。SDK error後のrollbackは
 行わず、apply errorまたはverify失敗は`mutation_outcome_unknown`として返します。
 callerは同じmutationを再送せず、current objectsを再読込して実状態を確認します。
@@ -292,10 +306,10 @@ Undo/Redo、project保存、
 
 Phase 3の最初の操作は、既存objectを1件だけ削除する
 `POST /v1/scenes/current/objects/delete` とします。requestはmoveと同じ
-`expectedSceneName` と完全な`target` snapshotを持ちます。
+`expectedSceneName` と`objectId`を持ちます。
 
 1. 1回のEditorGate取得と1回のedit section内でscene名を確認する
-2. target snapshotに完全一致するobjectが1件だけであることを確認する
+2. object IDに一致するobjectが1件だけであることを確認する
 3. `delete_object`を1回だけ呼ぶ
 4. 同じedit section内でhandleが存在しないことを確認する
 
@@ -323,28 +337,21 @@ CR、LF、NULを含むtextを拒否します。length 0、frame overflow、同�
 
 ## Phase 3単一text updateの設計
 
-`POST /v1/scenes/current/objects/text/update` は、scene名、完全なtarget snapshot、
-期待する現在本文、新しい本文を受け取ります。1回のedit section内でscene、snapshot、
-先頭effectがtextであること、現在本文を順に確認してから、検証済みのtext項目だけを
-1回更新します。更新後は同じ項目をread-backし、新しい本文との一致を確認します。
-更新後のlayer、frame範囲、nameもSDKから再取得し、target snapshotとの一致を確認して
-実測値をresponseへ返します。
+`POST /v1/scenes/current/objects/text/update` はscene名、object IDと、本文、font、size、
+XYZ位置、色の任意patchを受け取ります。IDが内部aliasを含むため、読み取り後に対象設定が
+変わっていればmutation前にnot foundとなります。1回のedit section内でscene、ID、
+先頭effectがtextであることを確認し、指定項目を更新して全text設定をread-backします。
 
-scene、snapshot、現在本文、object種別の不一致はmutation前のconflictです。SDK更新後の
+scene、ID、object種別の不一致はmutation前に拒否します。SDK更新後の
 失敗またはread-back不一致は結果不確定とし、自動再試行せずdetailsの再取得を求めます。
-createと同じくCR、LF、NULを含む新しい本文は拒否します。font、装飾、座標、任意effectの
-更新、project保存、複数object更新は含めません。
-
-`expectedText`はdetailsと同じSDK項目から得た文字列との完全一致で比較し、改行変換や
-Unicode正規化は行いません。callerは独自に正規化せず、直前のdetails responseの本文を
-そのまま渡します。target snapshotが複数objectに一致する場合、targetがtext以外の場合、
-本文が一致しない場合はいずれもmutation前に`state_conflict`の409を返します。現sliceは
+createと同じくCR、LF、NULを含む新しい本文は拒否します。文字装飾、任意effectの
+更新、project保存、複数object更新は含めません。現sliceは
 単一行textだけをWindows実測対象とし、複数行字幕の作成・read・更新は未検証です。
 作成・更新では複数行を明示的に拒否します。
 
 ## Phase 3単一duplicateの設計
 
-`POST /v1/scenes/current/objects/duplicate` は完全なtarget snapshotと移動先layer、
+`POST /v1/scenes/current/objects/duplicate` はobject IDと移動先layer、
 start frameを受け取ります。targetを一意に特定し、元objectを含む既存objectとの
 移動先競合を検証した後、SDKから取得したaliasを外部へ返さず
 `create_object_from_alias`を1回だけ呼びます。
@@ -358,8 +365,8 @@ not found、複数一致と移動先競合はconflictです。effectやmedia pat
 `POST /v1/scenes/current/objects/media` はimage/audio共通で、callerが管理するWindows
 絶対path、scene、layer、start frame、lengthを受け取ります。個人開発用途ではmedia
 rootを設けず、pathの選択責任はCodexなどのcallerが持ちます。pluginは絶対pathであり
-既存の通常ファイルであることだけ確認し、相対pathを拒否します。full pathはresponse、
-ログ、エラーへ含めません。明示的にdebug logを有効にした場合だけ、JSON escapeした
+既存の通常ファイルであることだけ確認し、相対pathを拒否します。full pathはmutation response、
+ログ、エラーへ含めません。detailsでは既存素材の参照情報として返します。明示的にdebug logを有効にした場合だけ、JSON escapeした
 末尾file nameと成否を記録します。
 
 移動先範囲を検証してから`create_object_from_media_file`を1回だけ呼び、作成後の
