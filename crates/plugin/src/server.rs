@@ -3028,6 +3028,32 @@ mod tests {
     }
 
     #[test]
+    fn create_text_endpoint_accepts_aviutl_newline_escape() {
+        let server = start_with_text_creator(|request| {
+            Ok(aviutl2_ai_agent_protocol::CreateTextObjectResponse {
+                object: aviutl2_ai_agent_protocol::TimelineObject {
+                    id: "obj-multiline".to_owned(),
+                    layer: request.layer,
+                    start_frame: request.start_frame,
+                    end_frame: request.start_frame + request.length - 1,
+                    name: None,
+                },
+                text: request.text.clone(),
+            })
+        });
+        let request = r#"{"expectedSceneName":"Root","layer":1,"startFrame":100,"length":30,"text":"first\\nsecond"}"#;
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/text",
+            request,
+        );
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        let created: aviutl2_ai_agent_protocol::CreateTextObjectResponse =
+            serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(created.text, r"first\nsecond");
+    }
+
+    #[test]
     fn create_text_endpoint_rejects_zero_length_and_line_breaks() {
         let server = start_with_text_creator(|_| panic!("invalid request reached creator"));
         for request in [
@@ -3062,7 +3088,7 @@ mod tests {
                 text,
             })
         });
-        let request = text_update_request("Updated");
+        let request = text_update_request(r"Updated\nSecond");
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/text/update",
@@ -3071,7 +3097,7 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
         let updated: aviutl2_ai_agent_protocol::UpdateTextObjectResponse =
             serde_json::from_str(body(&response)).unwrap();
-        assert_eq!(updated.text.content, "Updated");
+        assert_eq!(updated.text.content, r"Updated\nSecond");
         assert_eq!(updated.object, objects().objects[0]);
     }
 
@@ -3149,6 +3175,13 @@ mod tests {
         ] {
             assert!(super::validate_text_patch(&patch).is_err());
         }
+        assert!(
+            super::validate_text_patch(&TextPropertiesPatch {
+                content: Some(r"first\nsecond".to_owned()),
+                ..empty
+            })
+            .is_ok()
+        );
     }
 
     #[test]

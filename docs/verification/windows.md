@@ -369,6 +369,12 @@ CLIからsizeを`48`、色を`FF0000`として指定しました。更新respons
 削除し、object一覧が空であることを確認しました。これは表記の正規化だけを許容する
 read-back比較の実測根拠です。丸めやclampで要求値そのものが変わるケースは未検証です。
 
+同じ成果物で文字列 `FIRST\nSECOND`（実際のLFではなくbackslashと`n`）を指定し、textの
+作成と既存textの更新をそれぞれ確認しました。どちらもread-backは文字列 `\n` を保持し、
+current frameでは`FIRST`と`SECOND`が2行で描画されました。実際のCR、LF、NULを拒否する
+入力境界は維持し、複数行にはこのAviUtl2 escape表現を使用します。確認後はfixtureを削除し、
+object一覧が空であることを確認しました。
+
 image detailsでは素材path、表示番号、再生速度、loop、連番設定を、audio detailsでは
 素材path、再生位置、再生速度、track、loop設定を取得しました。layerの表示・lockと、
 text/image/audioが持つ各effectの有効・lock状態も取得できました。

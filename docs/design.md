@@ -335,7 +335,8 @@ effect名、項目schema、aliasは実装内部に閉じ込めます。titleやs
 
 空objectを作ってから本文設定に失敗する部分適用を避けるため、内部で最小aliasを生成し、
 `create_object_from_alias`を1回だけ呼びます。aliasの行境界を壊さないよう、最初の契約は
-CR、LF、NULを含むtextを拒否します。length 0、frame overflow、同一layerの既存objectと
+実際のCR、LF、NULを含むtextを拒否します。AviUtl2が改行として解釈する文字列 `\n` は
+aliasの行境界を壊さないため許可します。length 0、frame overflow、同一layerの既存objectと
 重なる範囲もmutation前に拒否します。
 
 作成後は同じedit section内でlayer、frame範囲、nameと本文を読み返し、すべて一致した
@@ -351,7 +352,7 @@ XYZ位置、色の任意patchを受け取ります。IDが内部aliasを含む�
 
 scene、ID、object種別の不一致はmutation前に拒否します。SDK更新後の
 失敗またはread-back不一致は結果不確定とし、自動再試行せずdetailsの再取得を求めます。
-空patchは400とし、本文、font、size、XYZ位置、色のいずれにもCR、LF、NULを許可しません。
+空patchは400とし、本文、font、size、XYZ位置、色のいずれにも実際のCR、LF、NULを許可しません。
 sizeとXYZ位置は有限数値、色は6桁の16進数だけを受け付けます。
 
 SDKが数値表記の小数桁や色の英字大小を正規化し得るため、read-backは数値を数値同値、
@@ -360,9 +361,10 @@ SDKが数値表記の小数桁や色の英字大小を正規化し得るため�
 `mutation_outcome_unknown`としてdetailsの再取得を求めます。個別の「適用済みだが補正された」
 responseは、実利用で必要になるまで追加しません。
 
-文字装飾、任意effectの更新、project保存、複数object更新は含めません。現sliceは
-単一行textだけをWindows実測対象とし、複数行字幕の作成・read・更新は未検証です。
-作成・更新では複数行を明示的に拒否します。
+文字装飾、任意effectの更新、project保存、複数object更新は含めません。複数行は
+AviUtl2のescape表現である文字列 `\n` を本文に含めます。HTTP JSONではbackslashを
+escapeした `\\n` として送信し、read-backでも文字列 `\n` を保持します。実際の改行文字を
+SDKへ渡す契約にはしません。
 
 ## Phase 3単一duplicateの設計
 

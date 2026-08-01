@@ -83,8 +83,17 @@ dist\aviutl2-agent.exe update-text `
 ```
 
 更新後やtimeline上の移動後はIDが変わります。古いIDは再利用せずdetailsを読み直します。
-現在の作成・更新APIはCR、LF、NULを含む新しい本文を拒否するため、複数行textには
-対応していません。
+作成・更新APIは実際のCR、LF、NULを含む本文を拒否します。複数行textにはAviUtl2の
+escape表現である文字列 `\n` を使います。PowerShellでは次のようにsingle quoteで渡します。
+
+```powershell
+dist\aviutl2-agent.exe update-text `
+  --expected-scene-name Root `
+  --object-id obj-0123456789abcdef `
+  --text '1行目\n2行目'
+```
+
+JSON/MCPの文字列表現ではbackslash自体をescapeし、`"1行目\\n2行目"` とします。
 
 ### object操作の例
 
