@@ -59,7 +59,6 @@ jobs:
           context: .
           build-args: AVIUTL2_AI_AGENT_BUILD_COMMIT=${{ env.RELEASE_COMMIT }}
           outputs: type=local,dest=dist
-          cache-from: type=gha,scope=cross-build
 
       - name: Package release
         shell: bash
@@ -81,12 +80,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           awk -v version="$RELEASE_VERSION" '
-            $0 ~ "^## \\[" version "\\] - " { found = 1; next }
+            index($0, "## [" version "] - ") == 1 { found = 1; next }
             found && /^## \[/ { exit }
             found && /^\[[^]]+\]:/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
-          test -s release-notes.md
+          grep -q '[^[:space:]]' release-notes.md
           archive="aviutl2-ai-agent-${GITHUB_REF_NAME}-windows-x64.zip"
           gh release create "$GITHUB_REF_NAME" \
             "$archive" "$archive.sha256" \

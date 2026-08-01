@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   rust:
@@ -37,4 +37,4 @@ jobs:
           target: build
           push: false
           cache-from: type=gha,scope=cross-build
-          cache-to: type=gha,mode=max,scope=cross-build
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=cross-build' || '' }}

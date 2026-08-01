@@ -80,12 +80,13 @@ cargo test --locked --workspace
 Windows 成果物には Rust 1.88.0、`cargo-xwin` 0.19.2、静的リンクした
 MSVC CRT を使用します。`aviutl2` は 0.41.0 に完全固定しています。
 Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`、
-`.devcontainer/Dockerfile` を、`cargo-xwin` を更新する場合は両Dockerfileを
+`.devcontainer/Dockerfile`、READMEのRustバッジを、`cargo-xwin` を更新する場合は両Dockerfileを
 同時に変更します。あわせて `docs/history/phase0.md` に記録した互換性チェックを
 実施してください。
 
-CIの`cross-build` jobは、配布用Docker buildの全layerをGitHub Actions cacheの
-`cross-build` scopeへ保存します。Dockerfileの`dependencies` stageには固定toolchain、
+CIの`cross-build` jobは、mainへのpush時に配布用Docker buildの全layerをGitHub Actions
+cacheの`cross-build` scopeへ保存し、PRではそのcacheを読み取るだけにします。
+Dockerfileの`dependencies` stageには固定toolchain、
 `cargo-xwin`、Windows SDKと、manifest・lockfileに対応するLinux/Windows依存crateが
 含まれるため、sourceだけを変更したrunではこの依存layerを再利用します。workspace
 crateの追加、削除、移動や `build.rs` の追加時は、Dockerfileの `dependencies`

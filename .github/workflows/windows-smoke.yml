@@ -6,10 +6,7 @@ on:
     branches:
       - main
     paths:
-      - "crates/plugin/**"
-      - "crates/cli/**"
-      - "crates/mcp/**"
-      - "crates/protocol/**"
+      - "crates/**"
       - ".cargo/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -17,10 +14,7 @@ on:
       - ".github/workflows/windows-smoke.yml"
   pull_request:
     paths:
-      - "crates/plugin/**"
-      - "crates/cli/**"
-      - "crates/mcp/**"
-      - "crates/protocol/**"
+      - "crates/**"
       - ".cargo/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -32,7 +26,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   native-build:
