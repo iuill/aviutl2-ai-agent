@@ -1,9 +1,10 @@
 use anyhow::Result;
 use aviutl2_ai_agent_protocol::{
     ApiError, CreateMediaObjectRequest, CreateMediaObjectResponse, CreateTextObjectRequest,
-    CreateTextObjectResponse, CurrentObjects, CurrentScene, CurrentTimeline, DeleteObjectRequest,
-    DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse, ErrorCode,
-    MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, TimelineObject,
+    CreateTextObjectResponse, CurrentObjectDetails, CurrentObjects, CurrentScene, CurrentTimeline,
+    DeleteObjectRequest, DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse,
+    ErrorCode, MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, TimelineObject,
+    UpdateTextObjectRequest, UpdateTextObjectResponse,
 };
 use clap::Parser;
 use rmcp::{
@@ -104,6 +105,16 @@ struct CreateTextObjectParams {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
+struct UpdateTextObjectParams {
+    expected_scene_name: String,
+    target: ObjectSnapshotParams,
+    expected_text: String,
+    text: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
 struct DuplicateObjectParams {
     expected_scene_name: String,
     target: ObjectSnapshotParams,
@@ -172,6 +183,22 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
+        description = "現在のsceneにあるobjectの種別とtext objectの本文を読み取ります。",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    fn list_current_object_details(
+        &self,
+        Parameters(_): Parameters<EmptyParams>,
+    ) -> Result<CallToolResult, McpError> {
+        Ok(self.get::<CurrentObjectDetails>("/v1/scenes/current/objects/details"))
+    }
+
+    #[tool(
         description = "完全一致する1つのobjectを指定位置へ移動します。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
@@ -236,6 +263,30 @@ impl Aviutl2Mcp {
                 layer: params.layer,
                 start_frame: params.start_frame,
                 length: params.length,
+                text: params.text,
+            },
+        )
+    }
+
+    #[tool(
+        description = "list_current_object_detailsが返した完全snapshotと現在本文をそのまま使い、text objectの本文を更新します。自動再試行しないでください。",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    fn update_text_object(
+        &self,
+        Parameters(params): Parameters<UpdateTextObjectParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.post::<_, UpdateTextObjectResponse>(
+            "/v1/scenes/current/objects/text/update",
+            &UpdateTextObjectRequest {
+                expected_scene_name: params.expected_scene_name,
+                target: params.target.into(),
+                expected_text: params.expected_text,
                 text: params.text,
             },
         )
@@ -370,7 +421,7 @@ fn format_error_response(status: ureq::http::StatusCode, body: &[u8]) -> String 
         let error = serde_json::to_string_pretty(&error)
             .unwrap_or_else(|serialize_error| serialize_error.to_string());
         let guidance = if reconcile {
-            "\nDo not retry this mutation. Call list_current_objects to reconcile the actual state."
+            "\nDo not retry this mutation. Call the relevant read tool to reconcile the actual state."
         } else {
             ""
         };
@@ -428,7 +479,7 @@ mod tests {
     #[test]
     fn tools_have_strict_schemas_and_accurate_annotations() {
         let tools = Aviutl2Mcp::tool_router().list_all();
-        assert_eq!(tools.len(), 8);
+        assert_eq!(tools.len(), 10);
         let mut tool_names = tools
             .iter()
             .map(|tool| tool.name.as_ref())
@@ -443,8 +494,10 @@ mod tests {
                 "duplicate_object",
                 "get_current_scene",
                 "get_current_timeline",
+                "list_current_object_details",
                 "list_current_objects",
                 "move_object",
+                "update_text_object",
             ]
         );
         assert!(tools.iter().all(|tool| {
@@ -454,6 +507,7 @@ mod tests {
         let read_tools = [
             "get_current_scene",
             "get_current_timeline",
+            "list_current_object_details",
             "list_current_objects",
         ];
         for tool in tools
@@ -486,7 +540,7 @@ mod tests {
                     .is_some_and(Value::is_object)
             );
         }
-        for name in ["move_object", "delete_object"] {
+        for name in ["move_object", "delete_object", "update_text_object"] {
             let tool = tools.iter().find(|tool| tool.name == name).unwrap();
             assert_eq!(
                 tool.annotations.as_ref().unwrap().destructive_hint,
@@ -588,6 +642,10 @@ mod tests {
                     "/v1/scenes/current/objects",
                     r#"{"objects":[{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#,
                 ),
+                (
+                    "/v1/scenes/current/objects/details",
+                    r#"{"objects":[{"object":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"kind":"text","text":"Hello"}]}"#,
+                ),
             ];
             for (path, body) in responses {
                 let (mut stream, _) = listener.accept().unwrap();
@@ -655,6 +713,11 @@ mod tests {
                     "/v1/scenes/current/objects/text",
                     r#"{"expectedSceneName":"Root","layer":1,"startFrame":100,"length":30,"text":"Hello"}"#,
                     r#"{"object":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"text":"Hello"}"#,
+                ),
+                (
+                    "/v1/scenes/current/objects/text/update",
+                    r#"{"expectedSceneName":"Root","target":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"expectedText":"Hello","text":"Updated"}"#,
+                    r#"{"object":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"text":"Updated"}"#,
                 ),
                 (
                     "/v1/scenes/current/objects/duplicate",
@@ -750,6 +813,7 @@ mod tests {
             (2, "get_current_scene", r#""name": "Root""#),
             (3, "get_current_timeline", r#""width": 1920"#),
             (4, "list_current_objects", r#""name": "Title""#),
+            (5, "list_current_object_details", r#""text": "Hello""#),
         ];
         for (id, tool, expected) in calls {
             let call = format!(
@@ -829,12 +893,18 @@ mod tests {
             ),
             (
                 5,
+                "update_text_object",
+                r#"{"expectedSceneName":"Root","target":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"expectedText":"Hello","text":"Updated"}"#,
+                r#""text": "Updated""#,
+            ),
+            (
+                6,
                 "duplicate_object",
                 r#"{"expectedSceneName":"Root","target":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"destination":{"layer":2,"startFrame":200}}"#,
                 r#""startFrame": 200"#,
             ),
             (
-                6,
+                7,
                 "create_media_object",
                 r#"{"expectedSceneName":"Root","mediaPath":"C:\\media\\image.png","layer":3,"startFrame":300,"length":90}"#,
                 r#""endFrame": 389"#,

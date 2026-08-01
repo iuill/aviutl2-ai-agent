@@ -3,9 +3,10 @@ use std::process::ExitCode;
 use anyhow::Context;
 use aviutl2_ai_agent_protocol::{
     ApiError, CreateMediaObjectRequest, CreateMediaObjectResponse, CreateTextObjectRequest,
-    CreateTextObjectResponse, CurrentObjects, CurrentScene, CurrentTimeline, DeleteObjectRequest,
-    DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse, ErrorCode, Health,
-    MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status, TimelineObject,
+    CreateTextObjectResponse, CurrentObjectDetails, CurrentObjects, CurrentScene, CurrentTimeline,
+    DeleteObjectRequest, DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse,
+    ErrorCode, Health, MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status,
+    TimelineObject, UpdateTextObjectRequest, UpdateTextObjectResponse,
 };
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
@@ -32,6 +33,8 @@ enum Command {
     CurrentTimeline,
     /// List objects in the current scene as a point-in-time snapshot.
     CurrentObjects,
+    /// List object kinds and text content for the current scene.
+    CurrentObjectDetails,
     /// Move one object identified by its complete current snapshot.
     MoveObject {
         #[arg(long)]
@@ -72,6 +75,23 @@ enum Command {
         start_frame: u64,
         #[arg(long)]
         length: u64,
+        #[arg(long)]
+        text: String,
+    },
+    /// Update one text object after matching its snapshot and current text.
+    UpdateText {
+        #[arg(long)]
+        expected_scene_name: String,
+        #[arg(long)]
+        layer: u64,
+        #[arg(long)]
+        start_frame: u64,
+        #[arg(long)]
+        end_frame: u64,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        expected_text: String,
         #[arg(long)]
         text: String,
     },
@@ -140,6 +160,13 @@ fn run(args: Args) -> Result<(), ClientError> {
             "/v1/scenes/current/objects",
             "current objects",
         )?),
+        Command::CurrentObjectDetails => {
+            serde_json::to_string_pretty(&get::<CurrentObjectDetails>(
+                &args.endpoint,
+                "/v1/scenes/current/objects/details",
+                "current object details",
+            )?)
+        }
         Command::MoveObject {
             expected_scene_name,
             layer,
@@ -203,6 +230,30 @@ fn run(args: Args) -> Result<(), ClientError> {
                 text,
             },
             "create text object",
+        )?),
+        Command::UpdateText {
+            expected_scene_name,
+            layer,
+            start_frame,
+            end_frame,
+            name,
+            expected_text,
+            text,
+        } => serde_json::to_string_pretty(&post::<UpdateTextObjectResponse>(
+            &args.endpoint,
+            "/v1/scenes/current/objects/text/update",
+            &UpdateTextObjectRequest {
+                expected_scene_name,
+                target: TimelineObject {
+                    layer,
+                    start_frame,
+                    end_frame,
+                    name,
+                },
+                expected_text,
+                text,
+            },
+            "update text object",
         )?),
         Command::DuplicateObject {
             expected_scene_name,

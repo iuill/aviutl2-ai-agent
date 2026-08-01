@@ -65,10 +65,19 @@ legacy `initialize` lifecycleの両方を受け付けます。tool schemaはJSON
 
 write toolは1 call 1 operationで、同じ引数を自動再送しません。HTTP APIの
 `mutation_outcome_unknown`を含むcode、message、retryableをtool errorへ保持し、同codeでは
-`list_current_objects`による実状態の再取得を案内します。annotationはread toolを
+対象に対応するread toolによる実状態の再取得を案内します。annotationはread toolを
 read-only、create系をadditive、既存objectを変更または削除するtoolをdestructiveとして
 宣言し、全write toolをnon-idempotentかつclosed-worldとします。承認promptの最終判断は
 MCP clientに委ねます。
+
+既存projectの内容に基づく編集用に、`GET /v1/scenes/current/objects/details` は
+各objectの既存snapshot、公開種別、text objectだけの本文を返します。公開種別は
+Windowsで先頭effect名を実測した `text`、`image`、`audio` と、未分類の `unknown`です。
+raw effect名、alias、素材pathは返しません。従来のobject一覧はmutation requestへ渡す
+小さいsnapshot契約として維持し、detailsを混在させません。
+text種別を識別できても本文項目の取得に失敗した1件は`kind: text, text: null`へ降格し、
+他objectのdetailsは返します。これは恒常的に読めない1件によって一覧全体をretryableな
+503にしないためです。先頭effect自体を取得できないobjectは`unknown`とします。
 
 ## 実装境界
 
@@ -310,6 +319,27 @@ CR、LF、NULを含むtextを拒否します。length 0、frame overflow、同�
 作成後は同じedit section内でlayer、frame範囲、nameと本文を読み返し、すべて一致した
 場合だけ`{"object": <snapshot>, "text": <本文>}`を返します。object名変更、装飾、
 複数object生成は別mutationになるため、このendpointには含めません。
+
+## Phase 3単一text updateの設計
+
+`POST /v1/scenes/current/objects/text/update` は、scene名、完全なtarget snapshot、
+期待する現在本文、新しい本文を受け取ります。1回のedit section内でscene、snapshot、
+先頭effectがtextであること、現在本文を順に確認してから、検証済みのtext項目だけを
+1回更新します。更新後は同じ項目をread-backし、新しい本文との一致を確認します。
+更新後のlayer、frame範囲、nameもSDKから再取得し、target snapshotとの一致を確認して
+実測値をresponseへ返します。
+
+scene、snapshot、現在本文、object種別の不一致はmutation前のconflictです。SDK更新後の
+失敗またはread-back不一致は結果不確定とし、自動再試行せずdetailsの再取得を求めます。
+createと同じくCR、LF、NULを含む新しい本文は拒否します。font、装飾、座標、任意effectの
+更新、project保存、複数object更新は含めません。
+
+`expectedText`はdetailsと同じSDK項目から得た文字列との完全一致で比較し、改行変換や
+Unicode正規化は行いません。callerは独自に正規化せず、直前のdetails responseの本文を
+そのまま渡します。target snapshotが複数objectに一致する場合、targetがtext以外の場合、
+本文が一致しない場合はいずれもmutation前に`state_conflict`の409を返します。現sliceは
+単一行textだけをWindows実測対象とし、複数行字幕の作成・read・更新は未検証です。
+作成・更新では複数行を明示的に拒否します。
 
 ## Phase 3単一duplicateの設計
 

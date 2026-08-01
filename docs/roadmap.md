@@ -72,7 +72,8 @@ current以外のsceneを明示するAPIは、sceneを安全に選択・列挙で
 状態: **read評価とPhase 2・3 write parityの実装・Windows実利用確認完了**
 
 HTTP/CLIのread契約を実利用で評価できる段階で、AviUtl2 process外のstdio serverとして
-追加します。readはproject/scene、object、必要ならframeの最大3 toolに絞ります。
+追加します。最初のreadはproject/sceneとobjectの3 toolに絞り、実利用で不足が確認された
+object detailsを4つ目として追加します。
 Windows実測済みのPhase 2・3 write契約は1対1のtoolとして追加し、MCP専用mutationや
 汎用operation toolは設けません。MCPはpluginのvalidationを迂回しません。
 stdio transportは公式Rust SDKを使い、MCP `2026-07-28`とlegacy lifecycleを
@@ -167,7 +168,11 @@ SDKの観測なしに保証せず、部分失敗が残る場合は契約上明�
 2026-08-01のCodex実利用評価では、字幕5件を5回の単一`create-text`で作成し、約60秒で
 1回のobject一覧検証まで完了しました。この規模ではbatchを必要とする支障は観測して
 いません。むしろ一覧からtext本文とobject種別を再検証できないことが具体的な不足として
-残ったため、複数operationより先にread要件を評価します。
+残ったため、複数operationより先にobject details readと単一text updateを追加します。
+既存snapshot一覧はmutation照合用として維持し、detailsでは実測済みのtext、image、audioと
+unknownだけを公開します。text updateは完全snapshotと期待する現在本文を要求します。
+detailsは現在のsceneの全objectを一括で返し、kindやlayerによるfilterは持ちません。長尺の
+実projectで応答量が問題になった場合に、実測した利用条件に基づいてfilterを設計します。
 
 ## 全Phaseで維持する境界
 
