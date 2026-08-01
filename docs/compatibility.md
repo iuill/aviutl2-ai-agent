@@ -8,7 +8,9 @@
 | aviutl2-rs | 0.41.0 |
 | 最小AviUtl2 | 2.1.2（SDK wrapperの宣言値） |
 | 実機確認済み | AviUtl2 2.1.2 / Windows Server 2022、2025 |
-| Rust | 1.88.0 |
+| Rust | 1.97.1 |
+| cargo-xwin | 0.23.0 |
+| MCP SDK | rmcp 3.1.0 |
 | API | read 5種、write 6種 |
 | ビルド経路 | Windows native build、Linux Docker cross-build |
 

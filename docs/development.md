@@ -4,7 +4,7 @@
 
 対応ホストはLinuxおよびWSL2です。WindowsネイティブとmacOSは対象外です。
 
-Dev ContainerにはRust 1.88.0、`cargo-xwin` 0.19.2、Codex CLI、GitHub CLIが
+Dev ContainerにはRust 1.97.1、`cargo-xwin` 0.23.0、Codex CLI、GitHub CLIが
 含まれます。VS CodeのDev Containers拡張機能から、このリポジトリをコンテナで
 開いてください。コンテナ内のターミナルで次を実行するとCodexを起動できます。
 
@@ -77,12 +77,12 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 ```
 
-Windows 成果物には Rust 1.88.0、`cargo-xwin` 0.19.2、静的リンクした
+Windows 成果物には Rust 1.97.1、`cargo-xwin` 0.23.0、静的リンクした
 MSVC CRT を使用します。`aviutl2` は 0.41.0 に完全固定しています。
 Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`、
-`.devcontainer/Dockerfile`、READMEのRustバッジを、`cargo-xwin` を更新する場合は両Dockerfileを
-同時に変更します。あわせて `docs/history/phase0.md` に記録した互換性チェックを
-実施してください。
+`.devcontainer/Dockerfile`、Rustを指定するGitHub Actions、READMEのRustバッジ、
+`docs/compatibility.md`を、`cargo-xwin`を更新する場合は両Dockerfileを同時に変更します。
+あわせて `docs/history/phase0.md` に記録した互換性チェックを実施してください。
 
 CIの`cross-build` jobは、mainへのpush時に配布用Docker buildの全layerをGitHub Actions
 cacheの`cross-build` scopeへ保存し、PRではそのcacheを読み取るだけにします。

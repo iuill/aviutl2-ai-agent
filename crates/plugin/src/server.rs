@@ -1751,9 +1751,11 @@ fn platform_current_frame() -> Result<Vec<u8>, EditorError> {
             ));
         })
         .map_err(|_| EditorError::Unavailable)?;
-    let (width, height, pitch, buffer) = receiver
-        .recv_timeout(Duration::from_secs(2))
-        .map_err(|_| EditorError::Unavailable)?;
+    // Complete the SDK-owned asynchronous callback while the request worker is
+    // still running. Waiting during plugin unload can deadlock after AviUtl2
+    // has already stopped its rendering subsystem.
+    crate::windows_plugin::EDIT_HANDLE.wait_rendering_task();
+    let (width, height, pitch, buffer) = receiver.recv().map_err(|_| EditorError::Unavailable)?;
     let row_bytes = usize::try_from(width)
         .ok()
         .and_then(|width| width.checked_mul(4))

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::{path::PathBuf, process::ExitCode, time::Duration};
 
 use anyhow::Context;
 use aviutl2_ai_agent_protocol::{
@@ -12,6 +12,8 @@ use aviutl2_ai_agent_protocol::{
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use ureq::http;
+
+const CURRENT_FRAME_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Parser)]
 #[command(version, about = "AviUtl2 local API client")]
@@ -163,7 +165,7 @@ fn run(args: Args) -> Result<(), ClientError> {
             )?)
         }
         Command::CurrentFrame { output } => {
-            let bytes = get_bytes(&args.endpoint, "/v1/scenes/current/frame", "current frame")?;
+            let bytes = get_current_frame_bytes(&args.endpoint)?;
             std::fs::write(&output, bytes)
                 .with_context(|| format!("failed to write {}", output.display()))
                 .map_err(ClientError::Other)?;
@@ -371,10 +373,14 @@ fn get<T: DeserializeOwned>(
     decode_response(&endpoint, response_name, &mut response)
 }
 
-fn get_bytes(base_endpoint: &str, path: &str, response_name: &str) -> Result<Vec<u8>, ClientError> {
-    let endpoint = format!("{}{path}", base_endpoint.trim_end_matches('/'));
+fn get_current_frame_bytes(base_endpoint: &str) -> Result<Vec<u8>, ClientError> {
+    let endpoint = format!(
+        "{}/v1/scenes/current/frame",
+        base_endpoint.trim_end_matches('/')
+    );
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
+        .timeout_global(Some(CURRENT_FRAME_TIMEOUT))
         .build()
         .new_agent();
     let mut response = agent
@@ -394,7 +400,7 @@ fn get_bytes(base_endpoint: &str, path: &str, response_name: &str) -> Result<Vec
     response
         .body_mut()
         .read_to_vec()
-        .with_context(|| format!("invalid {response_name} response"))
+        .context("invalid current frame response")
         .map_err(ClientError::Other)
 }
 

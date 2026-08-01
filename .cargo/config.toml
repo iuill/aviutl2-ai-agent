@@ -1,2 +1,7 @@
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = [
+  "-C", "target-feature=+crt-static",
+  # cargo-xwin's CRT libraries reference Microsoft-internal PDBs that are not
+  # distributed with the SDK. Suppress only that non-actionable linker warning.
+  "-C", "link-arg=/IGNORE:4099",
+]

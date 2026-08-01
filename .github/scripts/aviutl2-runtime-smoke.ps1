@@ -370,6 +370,21 @@ try {
         throw "current-objects failed with exit code $($objectsResult.ExitCode)"
     }
 
+    $currentFrame = Join-Path $output "current-frame.png"
+    $frameResult = Invoke-CliCapture -Arguments @(
+        "current-frame",
+        "--output",
+        $currentFrame
+    )
+    if ($frameResult.ExitCode -ne 0) {
+        throw "current-frame failed with exit code $($frameResult.ExitCode)"
+    }
+    $signature = [System.IO.File]::ReadAllBytes($currentFrame)[0..7]
+    $pngSignature = [byte[]](137, 80, 78, 71, 13, 10, 26, 10)
+    if (($signature -join ",") -ne ($pngSignature -join ",")) {
+        throw "current-frame output did not have a PNG signature"
+    }
+
     $idleClient = [System.Net.Sockets.TcpClient]::new()
     $idleClient.Connect("127.0.0.1", 7890)
     $shutdownStarted = [DateTime]::UtcNow
