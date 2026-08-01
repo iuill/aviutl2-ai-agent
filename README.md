@@ -38,6 +38,12 @@ CLIとMCP ServerはAviUtl2のprocess外で動作し、loopback HTTP APIを経由
 version、tag、成果物の公開手順は [`docs/releases.md`](docs/releases.md)を参照してください。
 利用者向けの変更一覧は [`CHANGELOG.md`](CHANGELOG.md)に記録します。
 
+PowerShellでは、同時にdownloadした`.sha256`の先頭値と次の結果が一致することを確認します。
+
+```powershell
+(Get-FileHash .\aviutl2-ai-agent-v0.1.0-windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+```
+
 sourceから生成する場合の正規ビルドはLinuxまたはWSL2上のDockerで行います。
 
 ```bash

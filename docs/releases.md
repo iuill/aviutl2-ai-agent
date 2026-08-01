@@ -23,7 +23,7 @@ plugin情報に12桁の短縮hashを併記します。HTTPの`pluginVersion`は�
 
 1. `release/vX.Y.Z` branchをmainから作ります。
 2. `Cargo.toml`のworkspace versionを更新し、Cargo.lockを更新します。
-3. `CHANGELOG.md`の`Unreleased`を新versionとrelease日に移します。
+3. `CHANGELOG.md`の`Unreleased`を新versionへ移し、tag予定日が確定してからrelease日を記録します。
 4. `docs/compatibility.md`など、現行versionを示す文書を更新します。
 5. 通常のRust checkと正規Docker buildを実行します。
 6. SDK依存の挙動を変更した場合は、Windows実機結果も同じPRへ記録します。
@@ -55,10 +55,13 @@ git push origin v0.1.0
 - `aviutl2-ai-agent-vX.Y.Z-windows-x64.zip.sha256`
 
 zipにはplugin、CLI、MCP Server、各binaryの`SHA256SUMS`、LICENSE、READMEを含めます。
-GitHub Release本文はtag間の変更から自動生成します。
+workflowはzipの外部checksumとzip内binaryのchecksumを公開前にも検証します。外部checksumは
+downloadした配布物の完全性を確認する値であり、別のbuildで生成したzipとのbit単位の一致を
+保証するものではありません。GitHub Release本文はtag間の変更から自動生成します。
 
-workflowが一時的な理由で失敗した場合は同じrunを再実行します。誤った成果物を公開した
-場合もtagを付け替えず、原因を修正した次のpatch releaseを作ります。
+workflowが一時的な理由で失敗した場合は同じrunを再実行します。workflowやsourceの修正が
+必要な場合は、Releaseが未作成でもtagを削除・付け替えず、原因を修正した次のpatch releaseを
+作ります。誤った成果物を公開した場合も同じ扱いです。
 
 ## 公開後の確認
 
