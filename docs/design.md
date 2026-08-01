@@ -2,7 +2,7 @@
 
 ## 現在地
 
-Phase 0は2026-07-28に完了しました。目的はSDKの全挙動を調べ切ることではなく、
+Phase 0は完了しています。目的はSDKの全挙動を調べ切ることではなく、
 Windows + AviUtl2で最小のread-only経路を安全に実装できる根拠を得ることでした。
 観測結果の詳細と未検証事項は [`history/phase0.md`](history/phase0.md) に残します。
 

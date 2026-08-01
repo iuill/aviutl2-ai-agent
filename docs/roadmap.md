@@ -46,7 +46,7 @@ current edit sectionには `scene_id: i32` とscene名がありますが、scene
 観測後、`GET /v1/scenes/current` に安全に公開できるidentityとmetadataを加算します。
 IDの寿命を実測できなければ公開せず、内部の観測値に留めます。scene一覧はSDKに
 列挙手段が追加されるか、別の安全な取得方法を実測できるまで保留します。
-2026-07-29の最初の観測では、同一process内で `Root=0`、`Scene1=1`、
+最初の観測では、同一process内で `Root=0`、`Scene1=1`、
 再選択した `Root=0` でした。残りの寿命・再利用条件が未確認のため、IDはまだ
 公開契約に含めません。
 
@@ -97,11 +97,11 @@ Codexでの実利用評価は、同じtimeline状態に対して3 toolを1回ず
 object件数、応答のおおよその文字数、判断に不足したmetadataを記録します。小規模な
 fixtureだけでページング要否を決めず、実利用で一覧の冗長さが問題になった場合に限って
 契約を設計します。登録・切り分け手順は [`README.md`](../README.md) に記載します。
-2026-08-01に空のRootと20 objectの一時fixtureで3 toolのCodex実利用評価を完了しました。
+空のRootと20 objectの一時fixtureで3 toolのCodex実利用評価を完了しました。
 20件のobject一覧は1,981文字で、配置の要約に支障がなかったため、現時点ではページングを
 追加しません。不足したmetadataは具体的な操作taskで必要性を評価してからread契約を
 設計します。実測条件と結果は
-[`verification/windows.md`](verification/windows.md#2026-08-01-codexからのread-only-mcp実利用評価)
+[`verification/windows.md`](verification/windows.md#codexからのread-only-mcp実利用評価)
 に記録します。
 
 Windows実測済みのPhase 2・3 HTTP/CLI契約へ1対1で対応する6つのwrite toolを追加しました。
@@ -167,7 +167,7 @@ SDKの観測なしに保証せず、部分失敗が残る場合は契約上明�
 処理時間、操作間の競合、Undo単位のいずれかが単一操作では問題になることを、導入判断の
 根拠とします。
 
-2026-08-01のCodex実利用評価では、字幕5件を5回の単一`create-text`で作成し、約60秒で
+Codex実利用評価では、字幕5件を5回の単一`create-text`で作成し、約60秒で
 1回のobject一覧検証まで完了しました。この規模ではbatchを必要とする支障は観測して
 いません。むしろ一覧からtext本文とobject種別を再検証できないことが具体的な不足として
 残ったため、複数operationより先にobject details readと単一text updateを追加しました。
