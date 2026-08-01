@@ -1,10 +1,11 @@
 # aviutl2-ai-agent
 
-[![Rust 1.88.0](https://img.shields.io/badge/Rust-1.88.0-000000?logo=rust)](https://www.rust-lang.org/) [![Cross-compile](https://img.shields.io/badge/cross--compile-Linux%20%E2%86%92%20Windows%20x64-FCC624?logo=linux&logoColor=black)](docs/development.md#配布用ビルド) [![GitHub Release](https://img.shields.io/github/v/release/iuill/aviutl2-ai-agent)](https://github.com/iuill/aviutl2-ai-agent/releases/latest) [![CI](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml) [![Windows build](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml) [![License](https://img.shields.io/github/license/iuill/aviutl2-ai-agent)](LICENSE)
+[![Rust 1.97.1](https://img.shields.io/badge/Rust-1.97.1-000000?logo=rust)](https://www.rust-lang.org/) [![Cross-compile](https://img.shields.io/badge/cross--compile-Linux%20%E2%86%92%20Windows%20x64-FCC624?logo=linux&logoColor=black)](docs/development.md#配布用ビルド) [![GitHub Release](https://img.shields.io/github/v/release/iuill/aviutl2-ai-agent)](https://github.com/iuill/aviutl2-ai-agent/releases/latest) [![CI](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml) [![Windows build](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml) [![License](https://img.shields.io/github/license/iuill/aviutl2-ai-agent)](LICENSE)
 
-起動中のAviUtl2プロジェクトを、ローカルの構造化APIから読み書きするための
-非公式プロジェクトです。AviUtl2 Plugin SDKを使うプラグインと、CLI、MCP Serverを
-Rustで実装しています。AviUtl2公式のプロジェクトではありません。
+AIエージェントから、起動中のAviUtl2プロジェクトをMCPまたはCLI経由で読み書きする
+ための非公式プロジェクトです。AviUtl2 Plugin SDKを使うプラグインがローカルの
+構造化APIを提供し、Rust製のCLIとMCP Serverが同じAPIへ接続します。
+AviUtl2公式のプロジェクトではありません。
 
 読み書きの最小APIまで実装済みで、現在は既存のプロジェクトをAIエージェントから扱う
 実利用を通じて、単一operation APIに不足する要件を確認しています。

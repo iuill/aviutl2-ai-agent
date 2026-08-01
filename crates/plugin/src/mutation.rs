@@ -201,7 +201,7 @@ mod tests {
         let target = object(0, 0, 9);
         assert_eq!(
             validate_move(
-                &[target.clone()],
+                std::slice::from_ref(&target),
                 &target,
                 &MoveObjectDestination {
                     layer: 0,
