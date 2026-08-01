@@ -4,7 +4,19 @@
 現在の対応範囲は [`../compatibility.md`](../compatibility.md)、公開契約は
 [`../design.md`](../design.md)を参照してください。
 
-## 2026-08-01 plugin metadata更新後のruntime smoke
+この文書は検証対象別に整理します。実施日は再現性や互換性判断に影響する場合だけ本文へ
+記録し、変更時期そのものはGit履歴を正とします。
+
+- runtime基盤: [Phase 1 smoke](#phase-1-windows-runtime-smoke)、
+  [metadata](#plugin-metadata更新後のruntime-smoke)、[Azure VM](#azure-windows-vm-runtime-smoke)、
+  [port競合](#port-7890競合時の観測)、[HTTP切断](#loopback-http切断の調査)
+- API機能: [scene identity](#current-scene-identity追加観測)、
+  [object details / text update](#object-details-readとtext-updateの実機確認)、
+  [object ID / 型別設定 / frame](#object-id型別設定current-frameの実機確認)
+- MCP実利用: [read](#codexからのread-only-mcp実利用評価)、
+  [write](#codexからのwrite-mcp実利用確認)
+
+## plugin metadata更新後のruntime smoke
 
 Windows Server 2025の対話sessionで、commit `c674244` の正規Docker build成果物と
 AviUtl2 2.1.2を使い、既存のruntime smokeを実行しました。AviUtl2公式ZIPは固定した
@@ -24,7 +36,7 @@ Phase 0では、Windows 11上でLinux Dockerクロスビルド成果物を、Git
 Windows runner上でWindows native build成果物のロード、health、read section、
 正常終了を確認しました。
 
-## 2026-07-28 Phase 1 Windows runtime smoke
+## Phase 1 Windows runtime smoke
 
 GitHub Actions run
 [`30370093644`](https://github.com/iuill/aviutl2-ai-agent/actions/runs/30370093644)
@@ -60,7 +72,7 @@ workflowは次を実行しました。
 この観測は上記runの環境と状態に限られます。Windows 11でのPhase 1成果物、
 別のproject状態は未確認です。
 
-## 2026-07-29 current scene identity追加観測
+## current scene identity追加観測
 
 Windows Server 2025とAviUtl2 2.1.2の対話sessionで、branch上のWindows native
 release buildを使ってcurrent sceneを切り替えました。初期Root、追加したScene1、
@@ -107,7 +119,7 @@ Undo復元時のraw handleは削除前と同じで、Redo後の新規再作成�
 nameなしの1件をCLIとstdio MCPの両方から取得しました。返却値にraw handleは
 含まれません。
 
-## 2026-07-28 port 7890競合時の観測
+## port 7890競合時の観測
 
 最初に、port 7890を先に占有し、plugin初期化からbind errorを返す実装を
 GitHub Actions run
@@ -138,7 +150,7 @@ Microsoft Hyper-V Videoです。
 自動観測ではプラグイン情報画面を開いていません。`local API unavailable` の表示を
 利用者が画面上で認識できることは、Windows実機の手動確認項目として残します。
 
-## 2026-07-29 Azure Windows VM runtime smoke
+## Azure Windows VM runtime smoke
 
 Azure Windows Server 2025 Datacenter Azure Edition build 26100の専用VMで、
 Linux Docker cross-build成果物を検証しました。CPUはIntel Xeon Platinum 8171M
@@ -244,7 +256,7 @@ Windows x64成果物は正規Docker buildで生成済みです。Windows native 
 `aviutl2-agent-mcp.exe`を実際に起動し、stdio経由で`server/discover`とlegacy
 `initialize`のresponseを確認しました。cross-buildとは別の合格条件として継続します。
 
-## 2026-08-01 Codexからのread-only MCP実利用評価
+## Codexからのread-only MCP実利用評価
 
 Azure Windows Server 2025 VM、AviUtl2 2.1.2、Codex CLI 0.146.0で、base commit
 `0020a37bf69b2fa53e6024db77af9151faa5ac16`に本節を追加する前のworking tree差分を
@@ -290,7 +302,7 @@ textまたはobject種別のreadを次候補として評価し、SDK調査なし
 途中のoperationが失敗した場合、先に成功した字幕は残るため、後続を停止して一覧を
 再取得する既存の復旧方針を維持します。fixtureは保存せず破棄しました。
 
-## 2026-08-01 Codexからのwrite MCP実利用確認
+## Codexからのwrite MCP実利用確認
 
 同じWindows VMとAviUtl2 2.1.2で、write parityを実装した正規Docker build成果物を
 登録し、Codex CLI 0.146.0を`gpt-5.6-luna`、reasoning effort `high`で実行しました。
@@ -305,7 +317,7 @@ object一覧が空であることを独立確認しました。Codexはmutation�
 HTTP契約を同じstdio integration testで1対1に検証しており、このCodex runでは新たな
 media fixtureを作成していません。fixtureは保存せず破棄しました。
 
-## 2026-08-01 object details readとtext updateの実機確認
+## object details readとtext updateの実機確認
 
 Windows Server 2025、AviUtl2 2.1.2、正規Docker build成果物で、plain text、1px PNG、
 44.1 kHz・16-bit PCM WAVを保存しない一時fixtureとして作成しました。object detailsは
@@ -327,7 +339,7 @@ image、audioを識別し、完全snapshotと期待する現在本文を指定�
 未実測の動画などは`unknown`へ分類します。公開種別を増やす場合は、対象fixtureと先頭effect
 の対応をWindowsで観測してから追加します。
 
-## 2026-07-30 loopback HTTP切断の調査
+## loopback HTTP切断の調査
 
 Windows 11、AviUtl2 2.1.2、正規cross-build成果物で、10件のtext createと4 clientから
 各12回のhealthを実行しました。修正前はhealth 1件がclient側のWinsock 10054で失敗し、
@@ -343,3 +355,31 @@ accept後のsocketを明示的にblockingへ戻してからread/write timeoutを
 古いsnapshotの再送、duplicate、配置競合、delete、削除済みsnapshotの再送、作成競合、
 UI Undo/Redoを実行しました。期待どおり200、404、409へ分岐し、計68接続の診断ログに
 I/O失敗はありませんでした。
+
+## object ID、型別設定、current frameの実機確認
+
+正規Linux cross-build成果物をWindows Server 2022 + AviUtl2 2.1.2へ配置し、保存しない
+text、PNG、WAV fixtureを作成しました。objects/detailsのIDは同じ状態で一致しました。
+textをIDで指定し、本文、font、size、XYZ位置、色を1回で更新すると全項目のread-backが
+一致し、更新後は新しいIDが返りました。更新前IDの再送はmutation前の404になりました。
+
+commit `73e47f4` の正規cross-build成果物へ更新し、保存しないtext fixtureに対して
+CLIからsizeを`48`、色を`FF0000`として指定しました。更新responseとdetailsの再取得では
+それぞれ`48.00`、`ff0000`へ正規化され、更新は200で成功しました。確認後にfixtureを
+削除し、object一覧が空であることを確認しました。これは表記の正規化だけを許容する
+read-back比較の実測根拠です。丸めやclampで要求値そのものが変わるケースは未検証です。
+
+同じ成果物で文字列 `FIRST\nSECOND`（実際のLFではなくbackslashと`n`）を指定し、textの
+作成と既存textの更新をそれぞれ確認しました。どちらもread-backは文字列 `\n` を保持し、
+current frameでは`FIRST`と`SECOND`が2行で描画されました。実際のCR、LF、NULを拒否する
+入力境界は維持し、複数行にはこのAviUtl2 escape表現を使用します。確認後はfixtureを削除し、
+object一覧が空であることを確認しました。
+
+image detailsでは素材path、表示番号、再生速度、loop、連番設定を、audio detailsでは
+素材path、再生位置、再生速度、track、loop設定を取得しました。layerの表示・lockと、
+text/image/audioが持つ各effectの有効・lock状態も取得できました。
+
+cursor frame 0をrenderし、CLIで保存したファイルがPNG signatureを持つことを確認しました。
+同じMCP binaryをCodex CLI 0.146.0へ登録し、`gpt-5.6-luna`、reasoning effort `high`で
+`get_current_frame`を1回呼んだところ、image contentを取得して画面内容を説明できました。
+検証後にAviUtl2を終了し、一時WAVとPNGを削除しました。

@@ -4,7 +4,8 @@
 
 `aviutl2-ai-agent` は、AviUtl2をローカルの構造化APIから操作するための
 プロジェクトです。Phase 0のSDK技術スパイクとPhase 1から3の最小API実装は完了し、
-MCPのread/write toolの実利用確認、object details、text updateまで完了しています。
+MCPのread/write tool、型別object details、text properties update、current frame取得の
+実利用確認まで完了しています。
 現在は単一operation APIで不足する利用要件の確認を進めています。未検証の挙動は
 必要になる直前に追加調査します。
 
@@ -31,6 +32,15 @@ MCPのread/write toolの実利用確認、object details、text updateまで完�
   Undo、Redo、プロジェクト保存は公開しない。
 - Windows 実機で確認していない挙動を、確認済みまたは保証済みと記述しない。
 - 実機検証では、環境、ビルド元、再現手順、観測結果を記録する。
+
+## 文書の日付
+
+- `docs/` の通常文書は検証対象や機能別に整理し、変更日を見出しや本文へ機械的に付けない。
+  文書の変更時期はGit履歴を正とする。
+- 日時は、実験ログの時系列、互換性判断、再現条件、protocol versionなど、その値自体が
+  技術的な意味を持つ場合だけ記録する。
+- 日時を残す場合も、索引や主要見出しは対象別にし、日付順と追記順をナビゲーション構造に
+  しない。`docs/history/` の時系列調査記録は例外とする。
 
 ## 実装時の注意
 

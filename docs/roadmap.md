@@ -46,13 +46,13 @@ current edit sectionには `scene_id: i32` とscene名がありますが、scene
 観測後、`GET /v1/scenes/current` に安全に公開できるidentityとmetadataを加算します。
 IDの寿命を実測できなければ公開せず、内部の観測値に留めます。scene一覧はSDKに
 列挙手段が追加されるか、別の安全な取得方法を実測できるまで保留します。
-2026-07-29の最初の観測では、同一process内で `Root=0`、`Scene1=1`、
+最初の観測では、同一process内で `Root=0`、`Scene1=1`、
 再選択した `Root=0` でした。残りの寿命・再利用条件が未確認のため、IDはまだ
 公開契約に含めません。
 
 ### 1C: current sceneのtimeline / object read
 
-状態: **timeline概要、object一覧、object detailsを実装・実機確認済み**
+状態: **timeline概要、object一覧、型別details、current frameを実装・実機確認済み**
 
 current scene identityの扱いを決めた後、利用価値を確認しながら次を1種類ずつ
 追加します。
@@ -60,11 +60,12 @@ current scene identityの扱いを決めた後、利用価値を確認しなが�
 1. projectの観測可能なmetadata
 2. [完了] current sceneのtimeline概要
 3. [一覧実装済み] object一覧と個別取得
-4. effectの列挙と取得できるmetadata
+4. [完了] text/media設定とlayer/effect状態
+5. [通常状態完了] current frame画像
 
-object identity、project再読込時の無効化、eventとの関係は
-`history/phase0.md` Q5を追加調査してから契約化します。frame readはQ3を完了してから
-追加します。
+objectにはproject load世代、scene、配置、内部aliasを材料とするopaqueな一時IDを付け、
+永続identityとしては扱いません。frame readの特殊状態と負荷条件は`history/phase0.md` Q3に
+未検証事項として残します。
 current以外のsceneを明示するAPIは、sceneを安全に選択・列挙できる根拠が得られるまで
 公開しません。
 
@@ -85,7 +86,7 @@ stdio transportは公式Rust SDKを使い、MCP `2026-07-28`とlegacy lifecycle�
 - Codexからread-only toolを呼び出せる
 - Codexからwrite toolを呼び出し、作成・移動・複製・削除をread-backで確認できる
 - object一覧の情報量とページング方針を実利用で評価できる
-- 画像を扱う場合はbase64サイズと既定縮小幅を実測できる
+- [通常状態完了] MCP image contentとしてcurrent frameを取得できる
 - MCP SDK更新後のWindows x64 binaryをnative実行し、stdio tool呼出しを確認できる
 
 最後の項目は正規cross-buildとは別の合格条件です。`rmcp` 3.0.1への移行後、Linuxの
@@ -96,11 +97,11 @@ Codexでの実利用評価は、同じtimeline状態に対して3 toolを1回ず
 object件数、応答のおおよその文字数、判断に不足したmetadataを記録します。小規模な
 fixtureだけでページング要否を決めず、実利用で一覧の冗長さが問題になった場合に限って
 契約を設計します。登録・切り分け手順は [`README.md`](../README.md) に記載します。
-2026-08-01に空のRootと20 objectの一時fixtureで3 toolのCodex実利用評価を完了しました。
+空のRootと20 objectの一時fixtureで3 toolのCodex実利用評価を完了しました。
 20件のobject一覧は1,981文字で、配置の要約に支障がなかったため、現時点ではページングを
 追加しません。不足したmetadataは具体的な操作taskで必要性を評価してからread契約を
 設計します。実測条件と結果は
-[`verification/windows.md`](verification/windows.md#2026-08-01-codexからのread-only-mcp実利用評価)
+[`verification/windows.md`](verification/windows.md#codexからのread-only-mcp実利用評価)
 に記録します。
 
 Windows実測済みのPhase 2・3 HTTP/CLI契約へ1対1で対応する6つのwrite toolを追加しました。
@@ -166,14 +167,19 @@ SDKの観測なしに保証せず、部分失敗が残る場合は契約上明�
 処理時間、操作間の競合、Undo単位のいずれかが単一操作では問題になることを、導入判断の
 根拠とします。
 
-2026-08-01のCodex実利用評価では、字幕5件を5回の単一`create-text`で作成し、約60秒で
+Codex実利用評価では、字幕5件を5回の単一`create-text`で作成し、約60秒で
 1回のobject一覧検証まで完了しました。この規模ではbatchを必要とする支障は観測して
 いません。むしろ一覧からtext本文とobject種別を再検証できないことが具体的な不足として
 残ったため、複数operationより先にobject details readと単一text updateを追加しました。
-既存snapshot一覧はmutation照合用として維持し、detailsでは実測済みのtext、image、audioと
-unknownだけを公開します。text updateは完全snapshotと期待する現在本文を要求します。
+既存object一覧は配置と一時IDの小さい契約として維持し、detailsでは実測済みのtext、
+image、audioとunknownだけを公開します。text updateは状態に結び付くIDとpatchを要求します。
 detailsは現在のsceneの全objectを一括で返し、kindやlayerによるfilterは持ちません。長尺の
 実projectで応答量が問題になった場合に、実測した利用条件に基づいてfilterを設計します。
+
+project本体の読み込み、名前を付けて保存、上書き保存は、現行Plugin SDKに実行APIが
+ないため候補へ含めません。SDKへ正式なhost操作APIが追加された場合、またはUI Automationを
+別の安全性境界として採用する具体的な必要性が生じた場合に再評価します。SDK上の制約は
+[`design.md`](design.md#project保存読み込みのsdk制約)に記録します。
 
 ## 全Phaseで維持する境界
 

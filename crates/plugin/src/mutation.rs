@@ -61,6 +61,7 @@ pub(crate) fn validate_move(
     Ok((
         target_index,
         TimelineObject {
+            id: String::new(),
             layer: destination.layer,
             start_frame: destination.start_frame,
             end_frame,
@@ -89,6 +90,7 @@ pub(crate) fn validate_create(
         return Err(MoveValidationError::DestinationOccupied);
     }
     Ok(TimelineObject {
+        id: String::new(),
         layer,
         start_frame,
         end_frame,
@@ -112,6 +114,7 @@ pub(crate) fn validate_duplicate(
     Ok((
         target_index,
         TimelineObject {
+            id: String::new(),
             name: target.name.clone(),
             ..duplicate
         },
@@ -124,6 +127,7 @@ mod tests {
 
     fn object(layer: u64, start_frame: u64, end_frame: u64) -> TimelineObject {
         TimelineObject {
+            id: String::new(),
             layer,
             start_frame,
             end_frame,
@@ -213,6 +217,7 @@ mod tests {
         assert_eq!(
             validate_create(&[], 1, 100, 30).unwrap(),
             TimelineObject {
+                id: String::new(),
                 layer: 1,
                 start_frame: 100,
                 end_frame: 129,

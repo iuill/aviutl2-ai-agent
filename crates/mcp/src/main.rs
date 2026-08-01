@@ -3,9 +3,10 @@ use aviutl2_ai_agent_protocol::{
     ApiError, CreateMediaObjectRequest, CreateMediaObjectResponse, CreateTextObjectRequest,
     CreateTextObjectResponse, CurrentObjectDetails, CurrentObjects, CurrentScene, CurrentTimeline,
     DeleteObjectRequest, DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse,
-    ErrorCode, MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, TimelineObject,
-    UpdateTextObjectRequest, UpdateTextObjectResponse,
+    ErrorCode, MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, PositionProperties,
+    TextPropertiesPatch, UpdateTextObjectRequest, UpdateTextObjectResponse,
 };
+use base64::Engine;
 use clap::Parser;
 use rmcp::{
     ErrorData as McpError, ServiceExt,
@@ -39,27 +40,6 @@ struct EmptyParams {}
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
-struct ObjectSnapshotParams {
-    layer: u64,
-    start_frame: u64,
-    end_frame: u64,
-    name: Option<String>,
-}
-
-impl From<ObjectSnapshotParams> for TimelineObject {
-    fn from(value: ObjectSnapshotParams) -> Self {
-        Self {
-            layer: value.layer,
-            start_frame: value.start_frame,
-            end_frame: value.end_frame,
-            name: value.name,
-        }
-    }
-}
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[schemars(deny_unknown_fields)]
 struct DestinationParams {
     layer: u64,
     start_frame: u64,
@@ -79,7 +59,7 @@ impl From<DestinationParams> for MoveObjectDestination {
 #[schemars(deny_unknown_fields)]
 struct MoveObjectParams {
     expected_scene_name: String,
-    target: ObjectSnapshotParams,
+    object_id: String,
     destination: DestinationParams,
 }
 
@@ -88,7 +68,7 @@ struct MoveObjectParams {
 #[schemars(deny_unknown_fields)]
 struct DeleteObjectParams {
     expected_scene_name: String,
-    target: ObjectSnapshotParams,
+    object_id: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -107,9 +87,38 @@ struct CreateTextObjectParams {
 #[schemars(deny_unknown_fields)]
 struct UpdateTextObjectParams {
     expected_scene_name: String,
-    target: ObjectSnapshotParams,
-    expected_text: String,
-    text: String,
+    object_id: String,
+    patch: TextPropertiesPatchParams,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+struct PositionPropertiesParams {
+    x: String,
+    y: String,
+    z: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+struct TextPropertiesPatchParams {
+    content: Option<String>,
+    font: Option<String>,
+    size: Option<String>,
+    position: Option<PositionPropertiesParams>,
+    color: Option<String>,
+}
+
+impl From<PositionPropertiesParams> for PositionProperties {
+    fn from(value: PositionPropertiesParams) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+            z: value.z,
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -117,7 +126,7 @@ struct UpdateTextObjectParams {
 #[schemars(deny_unknown_fields)]
 struct DuplicateObjectParams {
     expected_scene_name: String,
-    target: ObjectSnapshotParams,
+    object_id: String,
     destination: DestinationParams,
 }
 
@@ -183,7 +192,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "現在のsceneにあるobjectの種別とtext objectの本文を読み取ります。",
+        description = "現在のsceneにあるobjectのID、種別、layer/effect状態、textとmediaの設定を読み取ります。",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -199,7 +208,31 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "完全一致する1つのobjectを指定位置へ移動します。自動再試行しないでください。",
+        description = "現在frameをPNG画像として取得します。",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    fn get_current_frame(
+        &self,
+        Parameters(_): Parameters<EmptyParams>,
+    ) -> Result<CallToolResult, McpError> {
+        Ok(
+            match get_bytes(&self.endpoint, "/v1/scenes/current/frame") {
+                Ok(bytes) => CallToolResult::success(vec![ContentBlock::image(
+                    base64::engine::general_purpose::STANDARD.encode(bytes),
+                    "image/png",
+                )]),
+                Err(message) => CallToolResult::error(vec![ContentBlock::text(message)]),
+            },
+        )
+    }
+
+    #[tool(
+        description = "list_current_objectsが返した現在のobject IDを使い、1つのobjectを指定位置へ移動します。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -215,14 +248,14 @@ impl Aviutl2Mcp {
             "/v1/scenes/current/objects/move",
             &MoveObjectRequest {
                 expected_scene_name: params.expected_scene_name,
-                target: params.target.into(),
+                object_id: params.object_id,
                 destination: params.destination.into(),
             },
         )
     }
 
     #[tool(
-        description = "完全一致する1つのobjectを削除します。自動再試行しないでください。",
+        description = "list_current_objectsが返した現在のobject IDを使い、1つのobjectを削除します。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -238,13 +271,13 @@ impl Aviutl2Mcp {
             "/v1/scenes/current/objects/delete",
             &DeleteObjectRequest {
                 expected_scene_name: params.expected_scene_name,
-                target: params.target.into(),
+                object_id: params.object_id,
             },
         )
     }
 
     #[tool(
-        description = "plain text objectを1つ作成します。自動再試行しないでください。",
+        description = "plain text objectを1つ作成します。複数行の本文には文字列 \\n を使い、実際の改行文字は使わないでください。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -269,7 +302,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "list_current_object_detailsが返した完全snapshotと現在本文をそのまま使い、text objectの本文を更新します。自動再試行しないでください。",
+        description = "list_current_object_detailsが返した現在のobject IDを使い、text objectの本文、font、size、XYZ位置、色を更新します。複数行の本文には文字列 \\n を使い、実際の改行文字は使わないでください。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -285,15 +318,20 @@ impl Aviutl2Mcp {
             "/v1/scenes/current/objects/text/update",
             &UpdateTextObjectRequest {
                 expected_scene_name: params.expected_scene_name,
-                target: params.target.into(),
-                expected_text: params.expected_text,
-                text: params.text,
+                object_id: params.object_id,
+                patch: TextPropertiesPatch {
+                    content: params.patch.content,
+                    font: params.patch.font,
+                    size: params.patch.size,
+                    position: params.patch.position.map(Into::into),
+                    color: params.patch.color,
+                },
             },
         )
     }
 
     #[tool(
-        description = "完全一致する1つのobjectを指定位置へ複製します。自動再試行しないでください。",
+        description = "list_current_objectsが返した現在のobject IDを使い、1つのobjectを指定位置へ複製します。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -309,7 +347,7 @@ impl Aviutl2Mcp {
             "/v1/scenes/current/objects/duplicate",
             &DuplicateObjectRequest {
                 expected_scene_name: params.expected_scene_name,
-                target: params.target.into(),
+                object_id: params.object_id,
                 destination: params.destination.into(),
             },
         )
@@ -375,6 +413,33 @@ fn get<T: DeserializeOwned + serde::Serialize>(
         .call()
         .map_err(|error| error.to_string())?;
     decode_response::<T>(&mut response)
+}
+
+fn get_bytes(base_endpoint: &str, path: &str) -> Result<Vec<u8>, String> {
+    let endpoint = format!("{}{path}", base_endpoint.trim_end_matches('/'));
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let mut response = agent
+        .get(&endpoint)
+        .call()
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let mut body = Vec::with_capacity(MAX_ERROR_BODY_BYTES + 1);
+        response
+            .body_mut()
+            .as_reader()
+            .take((MAX_ERROR_BODY_BYTES + 1) as u64)
+            .read_to_end(&mut body)
+            .map_err(|error| error.to_string())?;
+        return Err(format_error_response(status, &body));
+    }
+    response
+        .body_mut()
+        .read_to_vec()
+        .map_err(|error| error.to_string())
 }
 
 fn post<B: serde::Serialize, T: DeserializeOwned + serde::Serialize>(
@@ -479,7 +544,7 @@ mod tests {
     #[test]
     fn tools_have_strict_schemas_and_accurate_annotations() {
         let tools = Aviutl2Mcp::tool_router().list_all();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 11);
         let mut tool_names = tools
             .iter()
             .map(|tool| tool.name.as_ref())
@@ -492,6 +557,7 @@ mod tests {
                 "create_text_object",
                 "delete_object",
                 "duplicate_object",
+                "get_current_frame",
                 "get_current_scene",
                 "get_current_timeline",
                 "list_current_object_details",
@@ -506,6 +572,7 @@ mod tests {
 
         let read_tools = [
             "get_current_scene",
+            "get_current_frame",
             "get_current_timeline",
             "list_current_object_details",
             "list_current_objects",
@@ -568,6 +635,23 @@ mod tests {
                     })
                 })
         );
+        for name in ["create_text_object", "update_text_object"] {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            assert!(tool.description.as_deref().unwrap().contains(r"文字列 \n"));
+            assert!(
+                tool.description
+                    .as_deref()
+                    .unwrap()
+                    .contains("実際の改行文字は使わない")
+            );
+        }
+        let details = tools
+            .iter()
+            .find(|tool| tool.name == "list_current_object_details")
+            .unwrap();
+        for term in ["ID", "種別", "状態", "text", "media"] {
+            assert!(details.description.as_deref().unwrap().contains(term));
+        }
     }
 
     #[test]
@@ -640,11 +724,11 @@ mod tests {
                 ),
                 (
                     "/v1/scenes/current/objects",
-                    r#"{"objects":[{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#,
+                    r#"{"objects":[{"id":"obj-1","layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#,
                 ),
                 (
                     "/v1/scenes/current/objects/details",
-                    r#"{"objects":[{"object":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"kind":"text","text":"Hello"}]}"#,
+                    r#"{"objects":[{"object":{"id":"obj-1","layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"kind":"text","state":{"layerEnabled":true,"layerLocked":false,"effects":[]},"text":{"content":"Hello","font":"Yu Gothic UI","size":"40.00","position":{"x":"0.00","y":"0.00","z":"0.00"},"color":"ffffff"},"media":null}]}"#,
                 ),
             ];
             for (path, body) in responses {
@@ -661,6 +745,20 @@ mod tests {
                 .unwrap();
                 stream.flush().unwrap();
             }
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let length = stream.read(&mut request).unwrap();
+            let request = std::str::from_utf8(&request[..length]).unwrap();
+            assert!(request.starts_with("GET /v1/scenes/current/frame HTTP/1.1\r\n"));
+            let png = b"\x89PNG\r\n\x1a\nframe";
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                png.len()
+            )
+            .unwrap();
+            stream.write_all(png).unwrap();
+            stream.flush().unwrap();
         });
         (endpoint, task)
     }
@@ -701,33 +799,33 @@ mod tests {
             let responses = [
                 (
                     "/v1/scenes/current/objects/move",
-                    r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#,
-                    r#"{"object":{"layer":2,"startFrame":100,"endFrame":129,"name":"Title"}}"#,
+                    r#"{"expectedSceneName":"Root","objectId":"obj-1","destination":{"layer":2,"startFrame":100}}"#,
+                    r#"{"object":{"id":"obj-2","layer":2,"startFrame":100,"endFrame":129,"name":"Title"}}"#,
                 ),
                 (
                     "/v1/scenes/current/objects/delete",
-                    r#"{"expectedSceneName":"Root","target":{"layer":2,"startFrame":100,"endFrame":129,"name":"Title"}}"#,
-                    r#"{"deleted":{"layer":2,"startFrame":100,"endFrame":129,"name":"Title"}}"#,
+                    r#"{"expectedSceneName":"Root","objectId":"obj-2"}"#,
+                    r#"{"deleted":{"id":"obj-2","layer":2,"startFrame":100,"endFrame":129,"name":"Title"}}"#,
                 ),
                 (
                     "/v1/scenes/current/objects/text",
                     r#"{"expectedSceneName":"Root","layer":1,"startFrame":100,"length":30,"text":"Hello"}"#,
-                    r#"{"object":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"text":"Hello"}"#,
+                    r#"{"object":{"id":"obj-text","layer":1,"startFrame":100,"endFrame":129,"name":null},"text":"Hello"}"#,
                 ),
                 (
                     "/v1/scenes/current/objects/text/update",
-                    r#"{"expectedSceneName":"Root","target":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"expectedText":"Hello","text":"Updated"}"#,
-                    r#"{"object":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"text":"Updated"}"#,
+                    r#"{"expectedSceneName":"Root","objectId":"obj-text","patch":{"content":"Updated","font":null,"size":null,"position":null,"color":null}}"#,
+                    r#"{"object":{"id":"obj-text","layer":1,"startFrame":100,"endFrame":129,"name":null},"text":{"content":"Updated","font":"Yu Gothic UI","size":"40.00","position":{"x":"0.00","y":"0.00","z":"0.00"},"color":"ffffff"}}"#,
                 ),
                 (
                     "/v1/scenes/current/objects/duplicate",
-                    r#"{"expectedSceneName":"Root","target":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"destination":{"layer":2,"startFrame":200}}"#,
-                    r#"{"object":{"layer":2,"startFrame":200,"endFrame":229,"name":null}}"#,
+                    r#"{"expectedSceneName":"Root","objectId":"obj-text","destination":{"layer":2,"startFrame":200}}"#,
+                    r#"{"object":{"id":"obj-copy","layer":2,"startFrame":200,"endFrame":229,"name":null}}"#,
                 ),
                 (
                     "/v1/scenes/current/objects/media",
                     r#"{"expectedSceneName":"Root","mediaPath":"C:\\media\\image.png","layer":3,"startFrame":300,"length":90}"#,
-                    r#"{"object":{"layer":3,"startFrame":300,"endFrame":389,"name":null}}"#,
+                    r#"{"object":{"id":"obj-media","layer":3,"startFrame":300,"endFrame":389,"name":null}}"#,
                 ),
             ];
             for (path, expected_body, body) in responses {
@@ -813,7 +911,7 @@ mod tests {
             (2, "get_current_scene", r#""name": "Root""#),
             (3, "get_current_timeline", r#""width": 1920"#),
             (4, "list_current_objects", r#""name": "Title""#),
-            (5, "list_current_object_details", r#""text": "Hello""#),
+            (5, "list_current_object_details", r#""content": "Hello""#),
         ];
         for (id, tool, expected) in calls {
             let call = format!(
@@ -834,6 +932,19 @@ mod tests {
                     .contains(expected)
             );
         }
+
+        writer
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"get_current_frame\",\"arguments\":{}}}\n")
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        response.clear();
+        reader.read_line(&mut response).await.unwrap();
+        let response: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["id"], 6);
+        assert_eq!(response["result"]["isError"], false);
+        assert_eq!(response["result"]["content"][0]["type"], "image");
+        assert_eq!(response["result"]["content"][0]["mimeType"], "image/png");
 
         drop(writer);
         drop(reader);
@@ -876,13 +987,13 @@ mod tests {
             (
                 2,
                 "move_object",
-                r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#,
+                r#"{"expectedSceneName":"Root","objectId":"obj-1","destination":{"layer":2,"startFrame":100}}"#,
                 r#""layer": 2"#,
             ),
             (
                 3,
                 "delete_object",
-                r#"{"expectedSceneName":"Root","target":{"layer":2,"startFrame":100,"endFrame":129,"name":"Title"}}"#,
+                r#"{"expectedSceneName":"Root","objectId":"obj-2"}"#,
                 r#""deleted""#,
             ),
             (
@@ -894,13 +1005,13 @@ mod tests {
             (
                 5,
                 "update_text_object",
-                r#"{"expectedSceneName":"Root","target":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"expectedText":"Hello","text":"Updated"}"#,
-                r#""text": "Updated""#,
+                r#"{"expectedSceneName":"Root","objectId":"obj-text","patch":{"content":"Updated","font":null,"size":null,"position":null,"color":null}}"#,
+                r#""content": "Updated""#,
             ),
             (
                 6,
                 "duplicate_object",
-                r#"{"expectedSceneName":"Root","target":{"layer":1,"startFrame":100,"endFrame":129,"name":null},"destination":{"layer":2,"startFrame":200}}"#,
+                r#"{"expectedSceneName":"Root","objectId":"obj-text","destination":{"layer":2,"startFrame":200}}"#,
                 r#""startFrame": 200"#,
             ),
             (
