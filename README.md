@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml)
 [![Windows build](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml)
+[![Rust 1.88.0](https://img.shields.io/badge/Rust-1.88.0-000000?logo=rust)](https://www.rust-lang.org/)
 [![GitHub Release](https://img.shields.io/github/v/release/iuill/aviutl2-ai-agent)](https://github.com/iuill/aviutl2-ai-agent/releases/latest)
 [![License](https://img.shields.io/github/license/iuill/aviutl2-ai-agent)](LICENSE)
 
