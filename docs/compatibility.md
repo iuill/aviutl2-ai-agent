@@ -2,9 +2,15 @@
 
 ## 対応環境
 
-| プラグイン | aviutl2-rs | 最小AviUtl2 | 実機確認済み | Rust | API | ビルド経路 |
-|---|---|---|---|---|---|---|
-| 0.0.1 | 0.41.0 | 2.1.2（SDK wrapperの宣言値） | AviUtl2 2.1.2 / Windows Server 2022、2025 | 1.88.0 | read 4種、write 6種 | Windows native build、Linux Docker cross-build |
+| 項目 | 値 |
+|---|---|
+| プラグイン | 0.0.1 |
+| aviutl2-rs | 0.41.0 |
+| 最小AviUtl2 | 2.1.2（SDK wrapperの宣言値） |
+| 実機確認済み | AviUtl2 2.1.2 / Windows Server 2022、2025 |
+| Rust | 1.88.0 |
+| API | read 4種、write 6種 |
+| ビルド経路 | Windows native build、Linux Docker cross-build |
 
 「最小AviUtl2」はSDK wrapperが宣言する条件であり、このプロジェクトが全機能を実機確認した
 version範囲ではありません。WindowsとAviUtl2で確認していない組み合わせを、対応済みとは

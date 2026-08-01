@@ -141,6 +141,12 @@ Windowsで`AVIUTL2_AI_AGENT_MUTATION_DEBUG_LOG`に出力先を指定すると、
 末尾file nameと成否をJSON Linesで記録します。full pathは記録しません。file nameにも
 個人情報が含まれ得るため、問題調査時だけ明示的に有効化してください。
 
+## Lifecycle diagnostic log
+
+Windowsで `AVIUTL2_AI_AGENT_LIFECYCLE_LOG` に出力先を指定すると、API Serverの起動失敗、
+plugin終了、HTTP workerのjoin結果をJSON Linesで記録します。旧名の
+`AVIUTL2_AI_AGENT_PHASE1_LIFECYCLE_LOG` は使用できません。
+
 ## HTTP diagnostic log
 
 接続切断やtimeoutの原因調査では、

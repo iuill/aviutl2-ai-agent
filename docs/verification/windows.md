@@ -4,6 +4,22 @@
 現在の対応範囲は [`../compatibility.md`](../compatibility.md)、公開契約は
 [`../design.md`](../design.md)を参照してください。
 
+## 2026-08-01 plugin metadata更新後のruntime smoke
+
+Windows Server 2025の対話sessionで、commit `c674244` の正規Docker build成果物と
+AviUtl2 2.1.2を使い、既存のruntime smokeを実行しました。AviUtl2公式ZIPは固定した
+SHA-256を検証してから展開しました。
+
+- pluginをロードし、health、status、current scene、timeline、object readが成功した
+- 正常終了時にHTTP workerをすべてjoinし、port 7890を再利用できた
+- port 7890競合時もAviUtl2が正常終了し、worker 0本で終了処理を完了した
+- `AVIUTL2_AI_AGENT_LIFECYCLE_LOG` で通常時とport競合時のlifecycleログを取得できた
+- 検証後にAviUtl2 process、Scheduled Task、一時成果物を残していない
+
+プラグイン情報画面はこの自動確認では開いていません。表示名と説明文のWindows
+cross-buildへの取り込みは生成binaryの文字列でも確認していますが、画面表示の目視確認は
+別条件として扱います。
+
 Phase 0では、Windows 11上でLinux Dockerクロスビルド成果物を、GitHub-hosted
 Windows runner上でWindows native build成果物のロード、health、read section、
 正常終了を確認しました。

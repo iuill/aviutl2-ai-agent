@@ -288,7 +288,7 @@ try {
     Copy-Item -LiteralPath $cli -Destination (Join-Path $app "aviutl2-agent.exe")
 
     $lifecycleLog = Join-Path $output "plugin-lifecycle.jsonl"
-    $env:AVIUTL2_AI_AGENT_PHASE1_LIFECYCLE_LOG = $lifecycleLog
+    $env:AVIUTL2_AI_AGENT_LIFECYCLE_LOG = $lifecycleLog
     $process = Start-Process -FilePath $aviutl2 -WorkingDirectory $app -PassThru
     [ordered]@{
         processId = $process.Id
@@ -448,7 +448,7 @@ try {
         Set-Content -Encoding utf8 (Join-Path $output "graceful-shutdown.json")
 
     $conflictLifecycleLog = Join-Path $output "port-conflict-plugin-lifecycle.jsonl"
-    $env:AVIUTL2_AI_AGENT_PHASE1_LIFECYCLE_LOG = $conflictLifecycleLog
+    $env:AVIUTL2_AI_AGENT_LIFECYCLE_LOG = $conflictLifecycleLog
     $portBlocker = [System.Net.Sockets.TcpListener]::new(
         [System.Net.IPAddress]::Loopback,
         7890

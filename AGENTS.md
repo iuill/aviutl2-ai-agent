@@ -4,9 +4,9 @@
 
 `aviutl2-ai-agent` は、AviUtl2をローカルの構造化APIから操作するための
 プロジェクトです。Phase 0のSDK技術スパイクとPhase 1から3の最小API実装は完了し、
-MCPのread/write実利用確認とobject details、text updateまで完了しています。現在は
-単一operation APIで不足する利用要件の確認を進めています。未検証の挙動は必要になる
-直前に追加調査します。
+MCPのread/write toolの実利用確認、object details、text updateまで完了しています。
+現在は単一operation APIで不足する利用要件の確認を進めています。未検証の挙動は
+必要になる直前に追加調査します。
 
 ## 参照
 
@@ -21,15 +21,14 @@ MCPのread/write実利用確認とobject details、text updateまで完了して
 `AGENTS.local.md` が存在する環境では、実機や資格情報に関するローカル運用手順として
 作業前に読み、内容をcommit、ログ、応答へ転載しないでください。
 
-## Phase の境界
+## API拡張の境界
 
-- Phase 1のread-only APIは `docs/design.md` の現行版に記載された範囲から追加する。
+- read APIは `docs/design.md` の現行版に記載された範囲から追加する。
 - timeline、object、event、renderなどへ範囲を広げる前に、関連する
   `docs/history/phase0.md` の未検証項目を調査する。
-- read APIを追加または拡張するPRでは、`docs/design.md` のPhase 1範囲を同じPRで
-  更新する。
-- write APIは `docs/design.md` で設計済みかつWindows実測済みのPhase 2・3範囲から
-  追加する。Undo、Redo、プロジェクト保存は公開しない。
+- read APIを追加または拡張するPRでは、`docs/design.md` の公開範囲を同じPRで更新する。
+- write APIは `docs/design.md` で設計済みかつWindows実測済みの範囲から追加する。
+  Undo、Redo、プロジェクト保存は公開しない。
 - Windows 実機で確認していない挙動を、確認済みまたは保証済みと記述しない。
 - 実機検証では、環境、ビルド元、再現手順、観測結果を記録する。
 
