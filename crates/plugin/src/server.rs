@@ -2608,6 +2608,26 @@ mod tests {
     }
 
     #[test]
+    fn update_text_endpoint_rejects_non_text_and_ambiguous_snapshot() {
+        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"expectedText":"Hello","text":"Updated"}"#;
+        for error in [
+            super::TextUpdateError::NotTextObject,
+            super::TextUpdateError::Validation(super::MoveValidationError::TargetAmbiguous),
+        ] {
+            let server = start_with_text_updater(move |_| Err(error));
+            let response = post(
+                server.local_addr(),
+                "/v1/scenes/current/objects/text/update",
+                request,
+            );
+            assert!(response.starts_with("HTTP/1.1 409 Conflict\r\n"));
+            let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+            assert_eq!(error.code, ErrorCode::StateConflict);
+            assert!(!error.retryable);
+        }
+    }
+
+    #[test]
     fn create_media_endpoint_returns_verified_object() {
         let server = start_with_media_creator(|request| {
             Ok(aviutl2_ai_agent_protocol::CreateMediaObjectResponse {

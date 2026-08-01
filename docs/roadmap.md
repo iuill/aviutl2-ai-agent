@@ -171,6 +171,8 @@ SDKの観測なしに保証せず、部分失敗が残る場合は契約上明�
 残ったため、複数operationより先にobject details readと単一text updateを追加します。
 既存snapshot一覧はmutation照合用として維持し、detailsでは実測済みのtext、image、audioと
 unknownだけを公開します。text updateは完全snapshotと期待する現在本文を要求します。
+detailsは現在のsceneの全objectを一括で返し、kindやlayerによるfilterは持ちません。長尺の
+実projectで応答量が問題になった場合に、実測した利用条件に基づいてfilterを設計します。
 
 ## 全Phaseで維持する境界
 

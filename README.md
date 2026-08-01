@@ -178,6 +178,10 @@ dist\aviutl2-agent.exe update-text `
   --expected-text "修正前" --text "修正後"
 ```
 
+`expected-text`には`current-object-details`が返した本文を正規化せずそのまま指定します。
+現時点の作成・更新APIはCR、LF、NULを含む新しい本文を拒否するため、複数行字幕の作成・
+更新には対応していません。
+
 これらは配置時間の再利用例であり、title/subtitle固有のfont、座標、装飾を保証する
 presetではありません。装飾presetは対応するaliasとread-back方法をWindowsで実測して
 から追加します。

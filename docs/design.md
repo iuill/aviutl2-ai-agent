@@ -329,6 +329,13 @@ scene、snapshot、現在本文、object種別の不一致はmutation前のconfl
 createと同じくCR、LF、NULを含む新しい本文は拒否します。font、装飾、座標、任意effectの
 更新、project保存、複数object更新は含めません。
 
+`expectedText`はdetailsと同じSDK項目から得た文字列との完全一致で比較し、改行変換や
+Unicode正規化は行いません。callerは独自に正規化せず、直前のdetails responseの本文を
+そのまま渡します。target snapshotが複数objectに一致する場合、targetがtext以外の場合、
+本文が一致しない場合はいずれもmutation前に`state_conflict`の409を返します。現sliceは
+単一行textだけをWindows実測対象とし、複数行字幕の作成・read・更新は未検証です。
+作成・更新では複数行を明示的に拒否します。
+
 ## Phase 3単一duplicateの設計
 
 `POST /v1/scenes/current/objects/duplicate` は完全なtarget snapshotと移動先layer、
