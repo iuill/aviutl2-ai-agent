@@ -196,11 +196,12 @@ IDが拒否された場合はproject load完了後にobject一覧を再取得し
 
 `GET /v1/scenes/current/frame` はtimelineの現在frameをRGBAで非同期renderし、callback中に
 所有bufferへコピーした後、PNGへencodeして返します。HTTP responseは `image/png`、CLIは
-指定pathへ保存し、MCPはimage content blockを返します。workerから
-`wait_rendering_task` は呼ばず、2秒以内にcallbackが来なければ503にします。
-plugin unload時だけはHTTP workerを停止した後に`wait_rendering_task`を待ちます。ここに
-timeoutを設けてDLLを先にunloadすると、遅れてcallbackがDLL内コードを実行し得るためです。
-SDKまたはhostがrender完了を通知しない場合、unloadが遅延する制約があります。
+指定pathへ保存し、MCPはimage content blockを返します。workerはrender要求を登録した直後に
+`wait_rendering_task`を呼び、callbackとそのDLL内コードが完了してからresponseを返します。
+plugin unload時は先にHTTP workerをjoinするため、未完了callbackは残りません。AviUtl2が
+render完了を通知しない場合はcurrent frame要求とplugin unloadが遅延する制約があります。
+unload処理から直接`wait_rendering_task`を呼ぶと、AviUtl2のrendering subsystem停止後に
+復帰しないことをWindows実機で観測したため、この順序には戻しません。
 
 DNS rebindingとbrowserからの単純なcross-origin GETを避けるため、Phase 1では
 `Host: 127.0.0.1:7890` 以外と、`Origin` headerを持つrequestを拒否します。

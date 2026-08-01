@@ -16,6 +16,32 @@
 - MCP実利用: [read](#codexからのread-only-mcp実利用評価)、
   [write](#codexからのwrite-mcp実利用確認)
 
+## Rust 1.97 toolchain更新後のruntime smoke
+
+Windows Server 2025 build 26100とAviUtl2 2.1.2の対話sessionで、PR #22の
+Rust 1.97.1、cargo-xwin 0.23.0、更新済み依存crateを使う正規Docker build成果物を
+検証しました。Linuxではformat、Clippy、workspace test、Windows cross-build、
+checksum、PE形式、plugin exportとimport DLLを確認しました。別条件のWindows native
+buildとMCP stdio lifecycleもGitHub Actionsで確認しました。
+
+runtime smokeはpluginとCLIを配置し、health、status、current scene、timeline、object
+read、idle TCP client接続中の終了、port再bind、port 7890競合時の縮退を順に実行しました。
+最初の成果物ではAviUtl2のwindowを閉じた後、plugin unload時に呼んでいたSDKの
+`wait_rendering_task`が復帰せず、30秒後に検証scriptがprocessをcleanupしました。同じ
+VM状態でmainのRust 1.88成果物も同じ位置で停止したため、toolchain更新による回帰では
+ありませんでした。
+
+current frame workerがrender要求の直後に`wait_rendering_task`を呼び、callback完了後に
+responseを返すよう寿命管理を変更しました。unloadはHTTP workerをjoinするだけとし、
+rendering subsystem停止後には待機しません。修正後の観測結果は次のとおりです。
+
+- `health`は`status=ok`、`pluginVersion=0.1.0`を返した
+- `status`、Root scene、空timelineとobject一覧を取得し、current frameのPNG signatureを確認した
+- idle client接続中も4 workerをpanicなしでjoinし、456ms、exit code 0で終了した
+- 終了後にport 7890を再bindできた
+- port競合時はworker 0本で安全にAPIを無効化し、exit code 0で終了した
+- 検証後にAviUtl2 process、Scheduled Task、一時成果物を残していない
+
 ## plugin metadata更新後のruntime smoke
 
 Windows Server 2025の対話sessionで、commit `c674244` の正規Docker build成果物と

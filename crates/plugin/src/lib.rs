@@ -111,9 +111,6 @@ mod windows_plugin {
                     join_panics: 0,
                 },
             );
-            if EDIT_HANDLE.is_ready() {
-                EDIT_HANDLE.wait_rendering_task();
-            }
             write_lifecycle_event(
                 "http_workers_joined",
                 Some((observation.worker_count, observation.join_panics)),
