@@ -55,13 +55,19 @@ Windows実機検証で使う接続設定は、必要に応じてホストからD
 Dev Containerの設定を変更した後や、既存コンテナに反映する場合は `dc rebuild` を
 実行します。
 
-## 必須チェック
+## 正規ビルド
 
 正規ビルドは Docker で実行します。
 
 ```bash
 docker build --output type=local,dest=dist .
 ```
+
+`dist/`にはWindows x64向けのplugin、CLI、MCP Serverと`SHA256SUMS`が生成されます。
+プラグインのロードやSDKに依存する挙動は、Docker buildの成功とは別にWindows + AviUtl2で
+検証します。
+
+## 必須チェック
 
 ローカルに Rust を導入している場合は、次のコマンドを使用できます。
 
@@ -78,15 +84,15 @@ Rustを更新する場合は `rust-toolchain.toml`、ルートの `Dockerfile`�
 同時に変更します。あわせて `docs/history/phase0.md` に記録した互換性チェックを
 実施してください。
 
-CIの `cross-build` jobは、Dockerfileの `dependencies` stageをGitHub Actions
-cacheの `cross-build` scopeへ保存します。このstageは固定toolchain、
-`cargo-xwin`、Windows SDKと、manifest・lockfileに対応するLinux/Windows依存crateを
-準備します。sourceだけを変更したrunでも、この依存layerを再利用します。workspace
+CIの`cross-build` jobは、正規Docker buildの全layerをGitHub Actions cacheの
+`cross-build` scopeへ保存します。Dockerfileの`dependencies` stageには固定toolchain、
+`cargo-xwin`、Windows SDKと、manifest・lockfileに対応するLinux/Windows依存crateが
+含まれるため、sourceだけを変更したrunではこの依存layerを再利用します。workspace
 crateの追加、削除、移動や `build.rs` の追加時は、Dockerfileの `dependencies`
 stageにあるmanifest、仮source、build scriptのCOPYと生成処理も更新してください。
 
-実際のbuild結果はcacheへexportせず、依存stageだけを保存します。cacheは性能最適化に
-のみ使用し、成果物の正しさや再現性の根拠にはしません。
+Windows native smokeはCargo registryと依存crateのbuild成果物をcacheします。どちらの
+cacheも性能最適化にのみ使用し、成果物の正しさや再現性の根拠にはしません。
 
 ## 実装境界
 
@@ -126,7 +132,7 @@ MCP serverはAviUtl2 process外でstdio serverとして起動し、既定では
 cargo run -p aviutl2-ai-agent-mcp
 ```
 
-別endpointを使うローカルtestでは `--endpoint` を指定できます。MCP Serverは4つの
+別endpointを使うローカルtestでは `--endpoint` を指定できます。MCP Serverは5つの
 read toolと6つのwrite toolを公開し、いずれもHTTP APIのvalidation、EditorGate、
 エラー契約を迂回しません。toolの一覧とCodexへの登録方法は
 [`README.md`](../README.md#codexからmcpで使う)を参照してください。

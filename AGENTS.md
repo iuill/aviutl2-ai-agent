@@ -58,6 +58,8 @@ MCPのread/write tool、型別object details、text properties update、current 
 - 公式release作業では、最初に`docs/releases.md`を読み、その手順を正とする。
 - plugin、CLI、MCP Serverはworkspace versionを共有する1セットとしてreleaseする。
 - release PRでworkspace version、Cargo.lock、CHANGELOG、互換性文書を同時に更新する。
+- CHANGELOGのrelease節はGitHub Release本文として使う。内部作業のPR一覧ではなく、
+  利用者に影響する機能、安全性、制約を記述する。
 - `vMAJOR.MINOR.PATCH` tagはrelease PRをmainへmergeし、全必須checkが成功した後に付ける。
 - push済みtagを別commitへ付け替えない。公開後の修正は次のpatch versionで行う。
 - GitHub Release作成後は、tag、version、zipの外部checksum、zip内binaryのchecksumを確認する。

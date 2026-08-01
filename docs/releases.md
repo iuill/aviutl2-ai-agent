@@ -57,7 +57,8 @@ git push origin v0.1.0
 zipにはplugin、CLI、MCP Server、各binaryの`SHA256SUMS`、LICENSE、READMEを含めます。
 workflowはzipの外部checksumとzip内binaryのchecksumを公開前にも検証します。外部checksumは
 downloadした配布物の完全性を確認する値であり、別のbuildで生成したzipとのbit単位の一致を
-保証するものではありません。GitHub Release本文はtag間の変更から自動生成します。
+保証するものではありません。GitHub Release本文は`CHANGELOG.md`の該当versionから生成します。
+開発途中のPR一覧ではなく、利用者に影響する機能、安全性、制約を簡潔に記載します。
 
 workflowが一時的な理由で失敗した場合は同じrunを再実行します。workflowやsourceの修正が
 必要な場合は、Releaseが未作成でもtagを削除・付け替えず、原因を修正した次のpatch releaseを
