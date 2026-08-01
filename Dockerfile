@@ -4,7 +4,7 @@ FROM rust:1.97.1-bookworm@sha256:77fac8b98f9f46062bb680b6d25d5bcaabfc400143952eb
 WORKDIR /src
 COPY rust-toolchain.toml ./
 RUN rustup target add x86_64-pc-windows-msvc \
- && cargo install cargo-xwin --version 0.19.2 --locked
+ && cargo install cargo-xwin --version 0.23.0 --locked
 COPY .cargo/config.toml .cargo/config.toml
 COPY Cargo.toml Cargo.lock ./
 COPY crates/cli/Cargo.toml crates/cli/Cargo.toml

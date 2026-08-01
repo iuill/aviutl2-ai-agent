@@ -89,7 +89,7 @@ stdio transportは公式Rust SDKを使い、MCP `2026-07-28`とlegacy lifecycle�
 - [通常状態完了] MCP image contentとしてcurrent frameを取得できる
 - MCP SDK更新後のWindows x64 binaryをnative実行し、stdio tool呼出しを確認できる
 
-最後の項目はLinux cross-buildとは別の合格条件です。`rmcp` 3.0.1への移行後、Linuxの
+最後の項目はLinux cross-buildとは別の合格条件です。`rmcp` 3.1.0への更新後、Linuxの
 stdio integration testに加え、Windows native CIでrelease binaryを起動し、modernと
 legacyの両lifecycleを確認しています。
 
