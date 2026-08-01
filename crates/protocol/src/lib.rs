@@ -57,6 +57,30 @@ pub struct CurrentObjects {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CurrentObjectDetails {
+    pub objects: Vec<ObjectDetails>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectDetails {
+    pub object: TimelineObject,
+    pub kind: ObjectKind,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectKind {
+    Text,
+    Image,
+    Audio,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimelineObject {
     pub layer: u64,
     pub start_frame: u64,
@@ -111,6 +135,22 @@ pub struct CreateTextObjectRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTextObjectResponse {
+    pub object: TimelineObject,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateTextObjectRequest {
+    pub expected_scene_name: String,
+    pub target: TimelineObject,
+    pub expected_text: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTextObjectResponse {
     pub object: TimelineObject,
     pub text: String,
 }
@@ -238,6 +278,18 @@ mod tests {
             serde_json::to_string(&objects).unwrap(),
             r#"{"objects":[{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#
         );
+
+        let details = CurrentObjectDetails {
+            objects: vec![ObjectDetails {
+                object: objects.objects[0].clone(),
+                kind: ObjectKind::Text,
+                text: Some("Hello".into()),
+            }],
+        };
+        assert_eq!(
+            serde_json::to_string(&details).unwrap(),
+            r#"{"objects":[{"object":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"kind":"text","text":"Hello"}]}"#
+        );
     }
 
     #[test]
@@ -287,6 +339,21 @@ mod tests {
         assert_eq!(request.text, "Hello");
         assert_eq!(request.length, 90);
         assert_eq!(serde_json::to_string(&request).unwrap(), json);
+    }
+
+    #[test]
+    fn update_text_request_uses_strict_camel_case_contract() {
+        let json = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":null},"expectedText":"Hello","text":"Updated"}"#;
+        let request = serde_json::from_str::<UpdateTextObjectRequest>(json).unwrap();
+        assert_eq!(request.expected_text, "Hello");
+        assert_eq!(request.text, "Updated");
+        assert_eq!(serde_json::to_string(&request).unwrap(), json);
+        assert!(
+            serde_json::from_str::<UpdateTextObjectRequest>(
+                r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":null},"expectedText":"Hello","text":"Updated","extra":true}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

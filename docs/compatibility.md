@@ -289,6 +289,26 @@ object一覧が空であることを独立確認しました。Codexはmutation�
 HTTP契約を同じstdio integration testで1対1に検証しており、このCodex runでは新たな
 media fixtureを作成していません。fixtureは保存せず破棄しました。
 
+### 2026-08-01 object details readとtext updateの実機確認
+
+Windows Server 2025、AviUtl2 2.1.2、正規Docker build成果物で、plain text、1px PNG、
+44.1 kHz・16-bit PCM WAVを保存しない一時fixtureとして作成しました。object detailsは
+3件をそれぞれ`text`、`image`、`audio`と分類し、textだけ本文`BEFORE`、他2件は
+`text: null`を返しました。raw effect名、alias、素材pathはresponseへ含まれませんでした。
+
+CLIから完全snapshotと`expectedText=BEFORE`を指定して`AFTER`へ更新し、detailsの再取得で
+本文を確認しました。続けて古い`expectedText=BEFORE`を再送するとmutation前に
+`state_conflict`の409となり、本文は`AFTER`のままでした。
+
+同じ成果物のMCP serverをCodex CLI 0.146.0へ登録し、`gpt-5.6-luna`、reasoning effort
+`high`で実行しました。Codexは`list_current_object_details`から本文`AFTER`のtext objectと
+image、audioを識別し、完全snapshotと期待する現在本文を指定して`update_text_object`を
+1回呼び、`CODEX_UPDATED`へ更新しました。再度detailsを取得して本文と他2objectの残存を
+確認し、CLIからも同じ3件と本文を独立確認しました。fixtureは保存せず破棄しました。
+
+未実測の動画などは`unknown`へ分類します。公開種別を増やす場合は、対象fixtureと先頭effect
+の対応をWindowsで観測してから追加します。
+
 ### 2026-07-30 loopback HTTP切断の調査
 
 Windows 11、AviUtl2 2.1.2、正規cross-build成果物で、10件のtext createと4 clientから

@@ -99,6 +99,11 @@ edit内readと連続呼出しが成立しました。入れ子、並列、終了
 取得しました。先頭effectは`テキスト`、本文の項目名も`テキスト`で、2番目のeffectは
 `標準描画`でした。診断buildとraw aliasは製品worktreeへ残していません。
 
+2026-08-01にWindows Server 2025とAviUtl2 2.1.2で、一時診断buildから先頭effect名を
+観測しました。plain textは`テキスト`、1px PNGは`画像ファイル`、44.1 kHz・16-bit PCM
+WAVは`音声ファイル`でした。未実測の動画などは分類せず、公開契約では`unknown`とします。
+診断用のeffect名出力とfixtureは観測後に製品buildとVMから除去しました。
+
 ### HTTP worker read-sectionプローブ
 
 `GET /phase0/read-section` は、HTTP workerから `call_read_section` を1回呼び、

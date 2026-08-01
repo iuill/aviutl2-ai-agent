@@ -68,6 +68,7 @@ cargo run -p aviutl2-ai-agent -- status
 cargo run -p aviutl2-ai-agent -- current-scene
 cargo run -p aviutl2-ai-agent -- current-timeline
 cargo run -p aviutl2-ai-agent -- current-objects
+cargo run -p aviutl2-ai-agent -- current-object-details
 ```
 
 MCP serverはstdioで起動します。公式Rust SDKを使用し、MCP `2026-07-28`の
@@ -78,9 +79,9 @@ cargo run -p aviutl2-ai-agent-mcp
 ```
 
 公開するread toolは `get_current_scene`、`get_current_timeline`、
-`list_current_objects` です。Phase 2・3のwrite契約には `move_object`、
+`list_current_objects`、`list_current_object_details` です。Phase 2・3のwrite契約には `move_object`、
 `delete_object`、`create_text_object`、`duplicate_object`、`create_media_object`が
-対応します。MCP server自身もloopback HTTP APIを経由し、write toolはCodexなどの
+対応し、既存text本文の更新には`update_text_object`を使います。MCP server自身もloopback HTTP APIを経由し、write toolはCodexなどの
 clientで承認対象になります。
 
 Windows x64の正規ビルド成果物をCodexへ登録する場合は、PowerShellで次を実行します。
@@ -93,7 +94,7 @@ codex mcp add aviutl2 -- $mcpServer
 codex mcp list
 ```
 
-登録後にCodexを再起動し、`/mcp`で `aviutl2` と8つのtoolを確認します。AviUtl2と
+登録後にCodexを再起動し、`/mcp`で `aviutl2` と10個のtoolを確認します。AviUtl2と
 pluginを起動してprojectを開き、同じtimeline状態のまま次を依頼します。
 
 ```text
@@ -165,6 +166,16 @@ dist\aviutl2-agent.exe create-text `
 dist\aviutl2-agent.exe create-text `
   --expected-scene-name Root `
   --layer 2 --start-frame 300 --length 90 --text "字幕テキスト"
+```
+
+既存text objectはdetailsで本文とsnapshotを読み、両方を事前条件として1件だけ更新します。
+
+```powershell
+dist\aviutl2-agent.exe current-object-details
+dist\aviutl2-agent.exe update-text `
+  --expected-scene-name Root `
+  --layer 2 --start-frame 300 --end-frame 389 `
+  --expected-text "修正前" --text "修正後"
 ```
 
 これらは配置時間の再利用例であり、title/subtitle固有のfont、座標、装飾を保証する
