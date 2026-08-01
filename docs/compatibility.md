@@ -228,6 +228,67 @@ Windows x64成果物は正規Docker buildで生成済みです。Windows native 
 `aviutl2-agent-mcp.exe`を実際に起動し、stdio経由で`server/discover`とlegacy
 `initialize`のresponseを確認しました。cross-buildとは別の合格条件として継続します。
 
+### 2026-08-01 Codexからのread-only MCP実利用評価
+
+Azure Windows Server 2025 VM、AviUtl2 2.1.2、Codex CLI 0.146.0で、base commit
+`0020a37bf69b2fa53e6024db77af9151faa5ac16`に本節を追加する前のworking tree差分を
+加え、正規Docker buildしたWindows x64成果物を評価しました。Codex CLIは公式の
+standalone installerで導入し、ChatGPTで認証しました。AviUtl2はログイン済みユーザーの
+対話sessionへ`InteractiveToken`のScheduled Taskとして起動しました。
+
+`aviutl2-agent-mcp.exe`をCodexへ登録し、同じ空のRootに対して
+`get_current_scene`、`get_current_timeline`、`list_current_objects`を1回ずつ呼びました。
+非対話の`codex exec`では既定のMCP承認promptがcancel扱いになるため、この評価runだけ
+`mcp_servers.aviutl2.default_tools_approval_mode="approve"`をCLI設定で指定しました。
+serverが公開するtoolは上記3つだけで、Codex側のsandboxはread-onlyとしました。
+
+3 toolはすべて成功しました。tool本文は順に約20文字、171文字、19文字で、Codexは
+Root、1920×1080、30 fps、cursor frame 0、object 0件と要約しました。判断に不足する
+metadataとしてscene ID、総尺、音声設定、背景色、project情報が挙げられました。
+空sceneだけではobject一覧の冗長さやページング要否を判断できないため、続けてobjectを
+含む状態を評価しました。
+
+続けて、保存しない一時fixtureとしてplain text objectを20件作成しました。全objectを
+layer 1へ30 frameずつ、frame 100から699まで隙間なく配置し、同じ3 toolをCodexから
+1回ずつ呼びました。scene本文は20文字、timeline本文は173文字、object一覧本文は
+1,981文字でした。Codexは20件、各30 frame、同一layer、連続配置、nameがすべてnullで
+あることを一覧から正しく要約できました。
+
+20件の一覧は切り詰めずに扱える量であり、現時点ではページングを追加しません。
+一方、object種別、text本文、素材path、effectと設定、非表示・lock状態は一覧から
+判断できませんでした。これらは利用要件として記録し、SDK挙動の調査とread契約の設計を
+行う前に、どの判断へ必要かを具体的な操作taskで評価します。fixtureは保存せず、標準の
+保存確認で破棄してAviUtl2が終了したことを確認しました。
+
+同じ環境で、複数字幕を組み立てる具体的な操作taskも評価しました。Codex CLIを
+`gpt-5.6-luna`、reasoning effort `high`で実行し、plain text字幕5件をframe 100、130、
+160、190、220へ、各30 frameの単一`create-text` operationとして順番に作成させました。
+Codex側の実行時間は約60秒で、5 operationすべてが成功し、最後に
+`list_current_objects`を1回呼んで5件の配置を検証しました。
+
+5件程度では単一operationの反復そのものに実行上の支障は観測せず、batch APIを追加する
+根拠にはしません。一方、object一覧は位置とnameだけを返すため、作成後のtext本文は
+read-only MCPから再検証できません。作成responseを保持している同一taskでは問題に
+なりませんが、既存projectの字幕内容を調べるtaskやsessionをまたぐ検証では不足します。
+textまたはobject種別のreadを次候補として評価し、SDK調査なしに契約へ追加はしません。
+途中のoperationが失敗した場合、先に成功した字幕は残るため、後続を停止して一覧を
+再取得する既存の復旧方針を維持します。fixtureは保存せず破棄しました。
+
+### 2026-08-01 Codexからのwrite MCP実利用確認
+
+同じWindows VMとAviUtl2 2.1.2で、write parityを実装した正規Docker build成果物を
+登録し、Codex CLI 0.146.0を`gpt-5.6-luna`、reasoning effort `high`で実行しました。
+この評価runだけMCP toolを承認済みとして扱い、Codex側のsandboxはread-onlyのまま、
+AviUtl2操作にはMCP toolだけを使うよう指示しました。
+
+空のRootでtext objectを作成し、完全なsnapshotを使って移動、複製、2件の存在確認、
+両方の削除、空一覧の最終確認を順に実行しました。`create_text_object`、`move_object`、
+`duplicate_object`、`delete_object`と`list_current_objects`はすべて成功し、最後にCLIからも
+object一覧が空であることを独立確認しました。Codexはmutationを自動再試行せず、各response
+で得たsnapshotを次のoperationへ渡しました。`create_media_object`は既存のWindows実測済み
+HTTP契約を同じstdio integration testで1対1に検証しており、このCodex runでは新たな
+media fixtureを作成していません。fixtureは保存せず破棄しました。
+
 ### 2026-07-30 loopback HTTP切断の調査
 
 Windows 11、AviUtl2 2.1.2、正規cross-build成果物で、10件のtext createと4 clientから

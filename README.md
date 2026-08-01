@@ -10,6 +10,40 @@
 これは非公式かつ実験段階のプロジェクトであり、AviUtl2公式のプロジェクトでは
 ありません。
 
+## ローカルワークスペースとDev Container
+
+このワークスペースでは、`main` や `worktrees/*` のチェックアウトと、ローカル専用の
+接続情報を次のように分けて配置します。`credentials/` はGitリポジトリに含めません。
+
+```text
+aviutl2-ai-agent/
+├── credentials/     # Windows VM接続用の秘密鍵・known_hosts・ssh_config
+├── main/            # このリポジトリの基準チェックアウト
+└── worktrees/       # 追加のGit worktree
+```
+
+credentialsの場所は、どこから見るかによって次のように表記します。
+
+| 視点 | path |
+|---|---|
+| ホスト | `$HOME/src/aviutl2-ai-agent/credentials` |
+| `main/` checkout | `../credentials` |
+| Dev Container | `/run/aviutl2-ai-agent-credentials` |
+
+Dev Containerではホスト側のcredentialsを上記のコンテナ内pathへread-onlyで
+マウントします。接続設定の準備方法はローカルの `../credentials/README.md`、
+Dev Containerの詳細は [`docs/development.md`](docs/development.md) を参照してください。
+設定変更後に既存のコンテナへ反映するには、チェックアウトのルートで次を実行します。
+
+```bash
+dc rebuild
+```
+
+VMの配置場所や実機操作など、個人環境にだけ適用する運用手順は、リポジトリルートの
+`AGENTS.local.md` に記述します。このファイルはGit管理対象外で、共有ルールを置き換えず
+`AGENTS.md`へ追加するローカル手順として扱います。秘密鍵やtokenなどの資格情報そのものは
+記載せず、credentials側で管理してください。
+
 ## アーキテクチャ
 
 ![aviutl2-ai-agentのアーキテクチャ](docs/assets/architecture.svg)
@@ -36,15 +70,40 @@ cargo run -p aviutl2-ai-agent -- current-timeline
 cargo run -p aviutl2-ai-agent -- current-objects
 ```
 
-read-only MCP serverはstdioで起動します。公式Rust SDKを使用し、MCP `2026-07-28`の
+MCP serverはstdioで起動します。公式Rust SDKを使用し、MCP `2026-07-28`の
 `server/discover` lifecycleとlegacy `initialize` lifecycleをサポートします。
 
 ```bash
 cargo run -p aviutl2-ai-agent-mcp
 ```
 
-公開するtoolは `get_current_scene`、`get_current_timeline`、
-`list_current_objects` で、MCP server自身もloopback HTTP APIを経由します。
+公開するread toolは `get_current_scene`、`get_current_timeline`、
+`list_current_objects` です。Phase 2・3のwrite契約には `move_object`、
+`delete_object`、`create_text_object`、`duplicate_object`、`create_media_object`が
+対応します。MCP server自身もloopback HTTP APIを経由し、write toolはCodexなどの
+clientで承認対象になります。
+
+Windows x64の正規ビルド成果物をCodexへ登録する場合は、PowerShellで次を実行します。
+絶対pathを登録するため、別のworking directoryからCodexを起動しても同じserverを
+起動できます。
+
+```powershell
+$mcpServer = (Resolve-Path .\dist\aviutl2-agent-mcp.exe).Path
+codex mcp add aviutl2 -- $mcpServer
+codex mcp list
+```
+
+登録後にCodexを再起動し、`/mcp`で `aviutl2` と8つのtoolを確認します。AviUtl2と
+pluginを起動してprojectを開き、同じtimeline状態のまま次を依頼します。
+
+```text
+AviUtl2の現在のscene、timeline概要、object一覧をread-only toolで取得して要約して。
+```
+
+read評価時は、3つのread toolが成功したか、object件数、tool応答のおおよその文字数、一覧だけでは
+判断できなかった情報を記録します。objectが多いprojectでも一覧が過度に冗長でなければ、
+ページングは追加しません。接続に失敗した場合は、先に
+`dist\aviutl2-agent.exe health` でHTTP APIを切り分けます。
 
 各コマンドは、Windows 上のプラグインが
 `http://127.0.0.1:7890` で待ち受けていることを前提とします。

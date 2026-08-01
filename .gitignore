@@ -1,7 +1,7 @@
 /target
 /dist
 /.cargo-xwin
-/.agents
+/AGENTS.local.md
 /.codex
 .env
 .env.*

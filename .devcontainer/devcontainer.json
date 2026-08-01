@@ -14,7 +14,8 @@
   },
   "mounts": [
     "source=${localEnv:HOME}/.codex/auth.json,target=/home/vscode/.codex/auth.json,type=bind",
-    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind",
+    "source=${localEnv:HOME}/src/aviutl2-ai-agent/credentials,target=/run/aviutl2-ai-agent-credentials,type=bind,readonly"
   ],
   "initializeCommand": "bash .devcontainer/scripts/ensure-host-codex-auth.sh '${localEnv:HOME}/.codex/auth.json' && bash .devcontainer/scripts/ensure-host-gh-config.sh '${localEnv:HOME}/.config/gh'",
   "postCreateCommand": "cargo fetch --locked",
