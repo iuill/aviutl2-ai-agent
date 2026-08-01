@@ -3191,7 +3191,7 @@ mod tests {
     }
 
     #[test]
-    fn update_text_endpoint_rejects_non_text_and_ambiguous_snapshot() {
+    fn update_text_endpoint_rejects_non_text_and_ambiguous_object_id() {
         let request = text_update_request("Updated");
         for error in [
             super::TextUpdateError::NotTextObject,

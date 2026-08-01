@@ -351,8 +351,16 @@ XYZ位置、色の任意patchを受け取ります。IDが内部aliasを含む�
 
 scene、ID、object種別の不一致はmutation前に拒否します。SDK更新後の
 失敗またはread-back不一致は結果不確定とし、自動再試行せずdetailsの再取得を求めます。
-createと同じくCR、LF、NULを含む新しい本文は拒否します。文字装飾、任意effectの
-更新、project保存、複数object更新は含めません。現sliceは
+空patchは400とし、本文、font、size、XYZ位置、色のいずれにもCR、LF、NULを許可しません。
+sizeとXYZ位置は有限数値、色は6桁の16進数だけを受け付けます。
+
+SDKが数値表記の小数桁や色の英字大小を正規化し得るため、read-backは数値を数値同値、
+色をASCII大小文字無視で比較し、それ以外は文字列一致を求めます。丸めや範囲へのclampで
+要求値と異なる値になった場合は成功とみなさず、適用後の状態が判明していても
+`mutation_outcome_unknown`としてdetailsの再取得を求めます。個別の「適用済みだが補正された」
+responseは、実利用で必要になるまで追加しません。
+
+文字装飾、任意effectの更新、project保存、複数object更新は含めません。現sliceは
 単一行textだけをWindows実測対象とし、複数行字幕の作成・read・更新は未検証です。
 作成・更新では複数行を明示的に拒否します。
 

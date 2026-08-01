@@ -363,6 +363,12 @@ text、PNG、WAV fixtureを作成しました。objects/detailsのIDは同じ状
 textをIDで指定し、本文、font、size、XYZ位置、色を1回で更新すると全項目のread-backが
 一致し、更新後は新しいIDが返りました。更新前IDの再送はmutation前の404になりました。
 
+commit `73e47f4` の正規cross-build成果物へ更新し、保存しないtext fixtureに対して
+CLIからsizeを`48`、色を`FF0000`として指定しました。更新responseとdetailsの再取得では
+それぞれ`48.00`、`ff0000`へ正規化され、更新は200で成功しました。確認後にfixtureを
+削除し、object一覧が空であることを確認しました。これは表記の正規化だけを許容する
+read-back比較の実測根拠です。丸めやclampで要求値そのものが変わるケースは未検証です。
+
 image detailsでは素材path、表示番号、再生速度、loop、連番設定を、audio detailsでは
 素材path、再生位置、再生速度、track、loop設定を取得しました。layerの表示・lockと、
 text/image/audioが持つ各effectの有効・lock状態も取得できました。
