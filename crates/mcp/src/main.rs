@@ -16,9 +16,10 @@ use rmcp::{
     transport::stdio,
 };
 use serde::de::DeserializeOwned;
-use std::io::Read;
+use std::{io::Read, time::Duration};
 
 const MAX_ERROR_BODY_BYTES: usize = 8 * 1024;
+const CURRENT_FRAME_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Parser)]
 #[command(version, about = "MCP server for the AviUtl2 local API")]
@@ -419,6 +420,7 @@ fn get_bytes(base_endpoint: &str, path: &str) -> Result<Vec<u8>, String> {
     let endpoint = format!("{}{path}", base_endpoint.trim_end_matches('/'));
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
+        .timeout_global(Some(CURRENT_FRAME_TIMEOUT))
         .build()
         .new_agent();
     let mut response = agent

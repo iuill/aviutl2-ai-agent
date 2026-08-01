@@ -202,6 +202,9 @@ plugin unload時は先にHTTP workerをjoinするため、未完了callbackは�
 render完了を通知しない場合はcurrent frame要求とplugin unloadが遅延する制約があります。
 unload処理から直接`wait_rendering_task`を呼ぶと、AviUtl2のrendering subsystem停止後に
 復帰しないことをWindows実機で観測したため、この順序には戻しません。
+CLIとMCPはcurrent frame要求だけを60秒でtimeoutし、利用者の呼出しを有限時間で返します。
+このclient timeoutはSDKのrender taskをcancelしないため、plugin workerとunloadはcallbackが
+完了するまで待機します。mutationには結果不明を増やすclient timeoutを一律適用しません。
 
 DNS rebindingとbrowserからの単純なcross-origin GETを避けるため、Phase 1では
 `Host: 127.0.0.1:7890` 以外と、`Origin` headerを持つrequestを拒否します。

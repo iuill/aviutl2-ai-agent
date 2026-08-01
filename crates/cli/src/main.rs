@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::{path::PathBuf, process::ExitCode, time::Duration};
 
 use anyhow::Context;
 use aviutl2_ai_agent_protocol::{
@@ -12,6 +12,8 @@ use aviutl2_ai_agent_protocol::{
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use ureq::http;
+
+const CURRENT_FRAME_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Parser)]
 #[command(version, about = "AviUtl2 local API client")]
@@ -375,6 +377,7 @@ fn get_bytes(base_endpoint: &str, path: &str, response_name: &str) -> Result<Vec
     let endpoint = format!("{}{path}", base_endpoint.trim_end_matches('/'));
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
+        .timeout_global(Some(CURRENT_FRAME_TIMEOUT))
         .build()
         .new_agent();
     let mut response = agent

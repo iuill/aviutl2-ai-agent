@@ -42,6 +42,9 @@ rendering subsystem停止後には待機しません。修正後の観測結果�
 - port競合時はworker 0本で安全にAPIを無効化し、exit code 0で終了した
 - 検証後にAviUtl2 process、Scheduled Task、一時成果物を残していない
 
+current frame要求の処理中にAviUtl2を終了する競合条件は未検証です。CLIとMCPには
+current frame専用の60秒timeoutを設けますが、plugin内部のrender taskはcancelしません。
+
 ## plugin metadata更新後のruntime smoke
 
 Windows Server 2025の対話sessionで、commit `c674244` の正規Docker build成果物と
