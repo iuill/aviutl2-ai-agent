@@ -1,5 +1,7 @@
 # aviutl2-ai-agent
 
+[![Rust 1.88.0](https://img.shields.io/badge/Rust-1.88.0-000000?logo=rust)](https://www.rust-lang.org/) [![Cross-compile](https://img.shields.io/badge/cross--compile-Linux%20%E2%86%92%20Windows%20x64-FCC624?logo=linux&logoColor=black)](docs/development.md#配布用ビルド) [![GitHub Release](https://img.shields.io/github/v/release/iuill/aviutl2-ai-agent)](https://github.com/iuill/aviutl2-ai-agent/releases/latest) [![CI](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml) [![Windows build](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml) [![License](https://img.shields.io/github/license/iuill/aviutl2-ai-agent)](LICENSE)
+
 起動中のAviUtl2プロジェクトを、ローカルの構造化APIから読み書きするための
 非公式プロジェクトです。AviUtl2 Plugin SDKを使うプラグインと、CLI、MCP Serverを
 Rustで実装しています。AviUtl2公式のプロジェクトではありません。
@@ -11,8 +13,8 @@ Rustで実装しています。AviUtl2公式のプロジェクトではありま
 
 | 分類 | 対応内容 |
 |---|---|
-| 読み取り | 現在のscene、timeline概要、object一覧、object種別、text本文 |
-| 既存objectの編集 | 移動、削除、複製、text本文の更新 |
+| 読み取り | 現在のscene、timeline、object詳細、text・素材・表示状態、current frame画像 |
+| 既存objectの編集 | 移動、削除、複製、text本文・font・size・位置・色の更新 |
 | objectの作成 | plain text、Windows絶対pathからのimage / audio |
 | 提供形態 | loopback HTTP API、Windows CLI、stdio MCP Server |
 
@@ -31,57 +33,47 @@ CLIとMCP ServerはAviUtl2のprocess外で動作し、loopback HTTP APIを経由
 プラグインが入力検証、SDKアクセスの直列化、変更後のread-backを担うため、どちらの
 経路も同じ安全性境界を通ります。
 
-## ビルド
+## インストール
 
 一般利用では[GitHub Releases](https://github.com/iuill/aviutl2-ai-agent/releases)から
 最新のWindows x64 zipと`.sha256`をdownloadし、checksumを確認して使用します。
-version、tag、成果物の公開手順は [`docs/releases.md`](docs/releases.md)を参照してください。
-利用者向けの変更一覧は [`CHANGELOG.md`](CHANGELOG.md)に記録します。
+versionごとの変更内容は [`CHANGELOG.md`](CHANGELOG.md)を参照してください。
 
 PowerShellでは、同じdirectoryへdownloadしたzipと`.sha256`を次のように照合できます。
 
 ```powershell
-$checksumFile = Get-Item .\aviutl2-ai-agent-v*-windows-x64.zip.sha256
+$checksumFiles = @(Get-Item .\aviutl2-ai-agent-v*-windows-x64.zip.sha256)
+if ($checksumFiles.Count -ne 1) { throw "Expected exactly one checksum file" }
+$checksumFile = $checksumFiles[0]
 $archive = $checksumFile.FullName -replace '\.sha256$', ''
 $expected = (Get-Content $checksumFile -Raw).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw "SHA-256 mismatch: $archive" }
 ```
 
-sourceから生成する場合の正規ビルドはLinuxまたはWSL2上のDockerで行います。
-
-```bash
-docker build --output type=local,dest=dist .
-```
-
-`dist/` に次のWindows x64成果物が生成されます。
-
-- `aviutl2-agent-plugin.aux2`: AviUtl2プラグイン
-- `aviutl2-agent.exe`: CLI
-- `aviutl2-agent-mcp.exe`: MCP Server
-- `SHA256SUMS`: 成果物のSHA-256
-
-プラグインのロードとSDKに依存する検証には、AviUtl2を導入したWindows環境が必要です。
+checksum確認後にzipを展開してください。sourceからのbuildと成果物については
+[`docs/development.md`](docs/development.md#配布用ビルド)を参照してください。
 
 ## Windowsで使う
 
-1. `dist/aviutl2-agent-plugin.aux2` をAviUtl2のプラグインディレクトリへコピーします。
+1. 展開した`aviutl2-agent-plugin.aux2`をAviUtl2のPlugin directoryへコピーします。
+   標準配置では`%ProgramData%\aviutl2\Plugin`、ポータブル配置では`data\Plugin`です。
 2. AviUtl2を起動し、プロジェクトを開きます。
 3. PowerShellから接続を確認します。
 
 ```powershell
-dist\aviutl2-agent.exe health
-dist\aviutl2-agent.exe status
-dist\aviutl2-agent.exe current-scene
-dist\aviutl2-agent.exe current-timeline
-dist\aviutl2-agent.exe current-object-details
-dist\aviutl2-agent.exe current-frame --output current-frame.png
+.\aviutl2-agent.exe health
+.\aviutl2-agent.exe status
+.\aviutl2-agent.exe current-scene
+.\aviutl2-agent.exe current-timeline
+.\aviutl2-agent.exe current-object-details
+.\aviutl2-agent.exe current-frame --output current-frame.png
 ```
 
 CLIの全commandは次で確認できます。
 
 ```powershell
-dist\aviutl2-agent.exe --help
+.\aviutl2-agent.exe --help
 ```
 
 ### 既存textの更新例
@@ -90,7 +82,7 @@ dist\aviutl2-agent.exe --help
 IDはproject load世代、scene、配置、設定内容に結び付く一時的な参照です。
 
 ```powershell
-dist\aviutl2-agent.exe update-text `
+.\aviutl2-agent.exe update-text `
   --expected-scene-name Root `
   --object-id obj-0123456789abcdef `
   --text "修正後" --font Arial --size 48.00 `
@@ -102,7 +94,7 @@ dist\aviutl2-agent.exe update-text `
 escape表現である文字列 `\n` を使います。PowerShellでは次のようにsingle quoteで渡します。
 
 ```powershell
-dist\aviutl2-agent.exe update-text `
+.\aviutl2-agent.exe update-text `
   --expected-scene-name Root `
   --object-id obj-0123456789abcdef `
   --text '1行目\n2行目'
@@ -116,16 +108,16 @@ JSON/MCPの文字列表現ではbackslash自体をescapeし、`"1行目\\n2行�
 古いIDや一致しないsceneを指定した場合は変更しません。
 
 ```powershell
-dist\aviutl2-agent.exe move-object `
+.\aviutl2-agent.exe move-object `
   --expected-scene-name Root `
   --object-id obj-0123456789abcdef `
   --destination-layer 2 --destination-start-frame 100
 
-dist\aviutl2-agent.exe create-text `
+.\aviutl2-agent.exe create-text `
   --expected-scene-name Root `
   --layer 1 --start-frame 100 --length 90 --text "Hello"
 
-dist\aviutl2-agent.exe create-media `
+.\aviutl2-agent.exe create-media `
   --expected-scene-name Root `
   --media-path "C:\media\example.png" `
   --layer 1 --start-frame 100 --length 90
@@ -146,7 +138,7 @@ Windows x64成果物をCodexへ登録します。絶対pathを登録するため
 からCodexを起動しても同じServerを利用できます。
 
 ```powershell
-$mcpServer = (Resolve-Path .\dist\aviutl2-agent-mcp.exe).Path
+$mcpServer = (Resolve-Path .\aviutl2-agent-mcp.exe).Path
 codex mcp add aviutl2 -- $mcpServer
 codex mcp list
 ```
@@ -173,7 +165,7 @@ AviUtl2の現在のobject detailsを取得し、text本文と配置を要約し�
 ```
 
 write toolを実行するかどうかの最終判断と承認方法はMCP Client側に委ねます。接続に
-失敗した場合は、先に `dist\aviutl2-agent.exe health` を実行してください。
+失敗した場合は、先に `.\aviutl2-agent.exe health` を実行してください。
 
 ## 開発
 
@@ -185,20 +177,10 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 ```
 
-Dev Container、依存更新、正規ビルド、診断ログについては
+Dev Container、依存更新、配布用ビルド、診断ログについては
 [`docs/development.md`](docs/development.md)を参照してください。
 releaseのversion更新、tag、GitHub Releaseについては
 [`docs/releases.md`](docs/releases.md)を参照してください。
-
-## ローカル環境の情報
-
-個人環境にだけ適用するVMの配置や実機操作は、リポジトリルートの
-`AGENTS.local.md` に記述します。このファイルはGit管理対象外で、`AGENTS.md`へ追加する
-ローカル手順として扱います。秘密鍵、tokenなどの資格情報そのものは記載しません。
-
-このワークスペースのDev Containerは、Windows実機検証用のcredentialsをホストから
-`/run/aviutl2-ai-agent-credentials` へread-onlyでmountできます。credentialsの作成・配置は
-公開ドキュメントではなく、各環境のローカル手順で管理してください。
 
 ## ドキュメント
 

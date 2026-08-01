@@ -51,13 +51,15 @@ MCPのread/write tool、型別object details、text properties update、current 
 - SDK の型を将来の HTTP 契約へ漏らさない。
 - 固定している Rust toolchain、`aviutl2` crate、`cargo-xwin` などを更新する場合は、
   `docs/development.md` に記載された互換性チェックを行い、結果を記録する。
-- `dist/` の成果物は手編集せず、正規ビルドで生成する。
+- `dist/` の成果物は手編集せず、Dockerの配布用ビルドで生成する。
 
 ## リリース
 
 - 公式release作業では、最初に`docs/releases.md`を読み、その手順を正とする。
 - plugin、CLI、MCP Serverはworkspace versionを共有する1セットとしてreleaseする。
 - release PRでworkspace version、Cargo.lock、CHANGELOG、互換性文書を同時に更新する。
+- CHANGELOGのrelease節はGitHub Release本文として使う。内部作業のPR一覧ではなく、
+  利用者に影響する機能、安全性、制約を記述する。
 - `vMAJOR.MINOR.PATCH` tagはrelease PRをmainへmergeし、全必須checkが成功した後に付ける。
 - push済みtagを別commitへ付け替えない。公開後の修正は次のpatch versionで行う。
 - GitHub Release作成後は、tag、version、zipの外部checksum、zip内binaryのchecksumを確認する。
@@ -72,7 +74,7 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 ```
 
-正規ビルド:
+配布用ビルド:
 
 ```bash
 docker build --output type=local,dest=dist .

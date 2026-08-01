@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   rust:
     runs-on: ubuntu-latest
@@ -25,19 +29,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v3
-      - name: Cache cross-build dependencies
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: dependencies
-          push: false
-          cache-from: type=gha,scope=cross-build
-          cache-to: type=gha,mode=max,scope=cross-build
+      - uses: docker/setup-buildx-action@v4
       - name: Build Windows artifacts
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: build
           push: false
           cache-from: type=gha,scope=cross-build
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=cross-build' || '' }}

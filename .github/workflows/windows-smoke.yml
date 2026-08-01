@@ -3,11 +3,18 @@ name: Windows build smoke
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     paths:
-      - "crates/plugin/**"
-      - "crates/cli/**"
-      - "crates/mcp/**"
-      - "crates/protocol/**"
+      - "crates/**"
+      - ".cargo/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/windows-smoke.yml"
+  pull_request:
+    paths:
+      - "crates/**"
       - ".cargo/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -17,18 +24,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   native-build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.88.0
-      - run: cargo test --locked -p aviutl2-ai-agent-plugin
-      - run: cargo test --locked -p aviutl2-ai-agent
-      - run: cargo test --locked -p aviutl2-ai-agent-mcp
-      - run: cargo build --locked --release -p aviutl2-ai-agent-plugin
-      - run: cargo build --locked --release -p aviutl2-ai-agent
-      - run: cargo build --locked --release -p aviutl2-ai-agent-mcp
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --locked --workspace
+      - run: cargo build --locked --release --workspace
       - name: Smoke MCP stdio lifecycle
         shell: pwsh
         run: |
