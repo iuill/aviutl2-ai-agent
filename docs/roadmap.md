@@ -1,8 +1,8 @@
 # ロードマップ
 
-この文書はPhase 1以降の実施順序を管理します。公開APIの契約と安全境界は
+この文書は完了したPhaseと今後の候補を管理します。公開APIの契約と安全境界は
 [`design.md`](design.md)、SDKの観測事実と未検証項目は
-[`phase0.md`](phase0.md)を正とします。
+[`history/phase0.md`](history/phase0.md)を正とします。
 
 先のPhaseまで設計と調査を進めることは妨げません。ただし、未検証のSDK挙動に依存する
 APIを先に公開したり、write APIをread-only APIへ紛れ込ませたりはしません。
@@ -29,7 +29,7 @@ runtime retryは複数instance対応と必要性を一緒に再設計します�
 
 ### 1B: current scene identity
 
-状態: **調査中**
+状態: **公開契約への追加を保留**
 
 `aviutl2` 0.41.0のgeneric APIと`aviutl2-sys`のPlugin SDK定義を調べた結果、
 current edit sectionには `scene_id: i32` とscene名がありますが、scene一覧を
@@ -52,7 +52,7 @@ IDの寿命を実測できなければ公開せず、内部の観測値に留め
 
 ### 1C: current sceneのtimeline / object read
 
-状態: **timeline概要とobject一覧を実装**
+状態: **timeline概要、object一覧、object detailsを実装・実機確認済み**
 
 current scene identityの扱いを決めた後、利用価値を確認しながら次を1種類ずつ
 追加します。
@@ -63,7 +63,8 @@ current scene identityの扱いを決めた後、利用価値を確認しなが�
 4. effectの列挙と取得できるmetadata
 
 object identity、project再読込時の無効化、eventとの関係は
-`phase0.md` Q5を追加調査してから契約化します。frame readはQ3を完了してから追加します。
+`history/phase0.md` Q5を追加調査してから契約化します。frame readはQ3を完了してから
+追加します。
 current以外のsceneを明示するAPIは、sceneを安全に選択・列挙できる根拠が得られるまで
 公開しません。
 
@@ -99,18 +100,18 @@ fixtureだけでページング要否を決めず、実利用で一覧の冗長�
 20件のobject一覧は1,981文字で、配置の要約に支障がなかったため、現時点ではページングを
 追加しません。不足したmetadataは具体的な操作taskで必要性を評価してからread契約を
 設計します。実測条件と結果は
-[`docs/compatibility.md`](compatibility.md#2026-08-01-codexからのread-only-mcp実利用評価)
+[`verification/windows.md`](verification/windows.md#2026-08-01-codexからのread-only-mcp実利用評価)
 に記録します。
 
-Windows実測済みのPhase 2・3 HTTP/CLI契約へ1対1で対応する5つのwrite toolを追加しました。
+Windows実測済みのPhase 2・3 HTTP/CLI契約へ1対1で対応する6つのwrite toolを追加しました。
 MCP専用のmutation契約やbatchは作らず、既存のvalidation、EditorGate、エラー契約を
 そのまま使います。write annotationとCodexからの実操作もWindowsで確認済みです。
 
 ## Phase 2: 既存objectの最小write
 
-状態: **move APIとCLIを実装、APIはWindows実機検証済み**
+状態: **move APIとCLIを実装・Windows実機検証済み**
 
-実装開始前に `phase0.md` の次をWindowsで完了し、結果を設計へ反映します。
+実装時には `history/phase0.md` の次の論点をWindowsで確認し、結果を設計へ反映しました。
 
 - Q1: HTTP workerからのedit section、edit内read、連続・入れ子呼出し
 - Q2: Undo単位、途中失敗、rollback API
@@ -127,8 +128,8 @@ MCP専用のmutation契約やbatchは作らず、既存のvalidation、EditorGat
 - apply後に対象を再取得して結果を返す
 - project保存、無条件のUndo/Redoは公開しない
 
-Phase 2の契約は調査結果を反映した新しい設計版で確定します。v0.4の案をそのまま仕様とは
-みなしません。
+Phase 2の契約は調査結果を反映した [`design.md`](design.md) で確定しています。
+v0.4の案は現行仕様とはみなしません。
 
 ## Phase 3: 単一objectの生成・複製・削除
 
@@ -168,7 +169,7 @@ SDKの観測なしに保証せず、部分失敗が残る場合は契約上明�
 2026-08-01のCodex実利用評価では、字幕5件を5回の単一`create-text`で作成し、約60秒で
 1回のobject一覧検証まで完了しました。この規模ではbatchを必要とする支障は観測して
 いません。むしろ一覧からtext本文とobject種別を再検証できないことが具体的な不足として
-残ったため、複数operationより先にobject details readと単一text updateを追加します。
+残ったため、複数operationより先にobject details readと単一text updateを追加しました。
 既存snapshot一覧はmutation照合用として維持し、detailsでは実測済みのtext、image、audioと
 unknownだけを公開します。text updateは完全snapshotと期待する現在本文を要求します。
 detailsは現在のsceneの全objectを一括で返し、kindやlayerによるfilterは持ちません。長尺の

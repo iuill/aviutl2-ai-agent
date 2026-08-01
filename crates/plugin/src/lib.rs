@@ -1,4 +1,4 @@
-//! Phase 1 read-only API plugin.
+//! Local structured API plugin for AviUtl2.
 
 mod editor;
 mod mutation;
@@ -19,7 +19,7 @@ mod windows_plugin {
 
     use crate::ApiServer;
 
-    const LIFECYCLE_LOG_ENV: &str = "AVIUTL2_AI_AGENT_PHASE1_LIFECYCLE_LOG";
+    const LIFECYCLE_LOG_ENV: &str = "AVIUTL2_AI_AGENT_LIFECYCLE_LOG";
     const EVENT_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_EVENT_OBSERVATION_LOG";
 
     pub(super) static EDIT_HANDLE: GlobalEditHandle = GlobalEditHandle::new();
@@ -53,12 +53,12 @@ mod windows_plugin {
                     env!("CARGO_PKG_VERSION")
                 ),
                 None => format!(
-                    "aviutl2-ai-agent {} — local read-only API",
+                    "aviutl2-ai-agent {} — local structured API",
                     env!("CARGO_PKG_VERSION")
                 ),
             };
             GenericPluginTable {
-                name: "aviutl2-ai-agent Phase 1".to_owned(),
+                name: "aviutl2-ai-agent".to_owned(),
                 information,
             }
         }
