@@ -14,6 +14,9 @@ use rmcp::{
     transport::stdio,
 };
 use serde::de::DeserializeOwned;
+use std::io::Read;
+
+const MAX_ERROR_BODY_BYTES: usize = 8 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(version, about = "MCP server for the AviUtl2 local API")]
@@ -344,24 +347,46 @@ fn decode_response<T: DeserializeOwned + serde::Serialize>(
     response: &mut ureq::http::Response<ureq::Body>,
 ) -> Result<String, String> {
     if !response.status().is_success() {
-        let error = response
+        let status = response.status();
+        let mut body = Vec::with_capacity(MAX_ERROR_BODY_BYTES + 1);
+        response
             .body_mut()
-            .read_json::<ApiError>()
-            .map_err(|error| error.to_string())?;
-        let reconcile = matches!(error.code, ErrorCode::MutationOutcomeUnknown);
-        let error = serde_json::to_string_pretty(&error).map_err(|error| error.to_string())?;
-        let guidance = if reconcile {
-            "\nDo not retry this mutation. Call list_current_objects to reconcile the actual state."
-        } else {
-            ""
-        };
-        return Err(format!("AviUtl2 API error:\n{error}{guidance}"));
+            .as_reader()
+            .take((MAX_ERROR_BODY_BYTES + 1) as u64)
+            .read_to_end(&mut body)
+            .map_err(|error| format!("AviUtl2 API error (HTTP {status}): {error}"))?;
+        return Err(format_error_response(status, &body));
     }
     let value: T = response
         .body_mut()
         .read_json()
         .map_err(|error| error.to_string())?;
     serde_json::to_string_pretty(&value).map_err(|error| error.to_string())
+}
+
+fn format_error_response(status: ureq::http::StatusCode, body: &[u8]) -> String {
+    if let Ok(error) = serde_json::from_slice::<ApiError>(body) {
+        let reconcile = matches!(error.code, ErrorCode::MutationOutcomeUnknown);
+        let error = serde_json::to_string_pretty(&error)
+            .unwrap_or_else(|serialize_error| serialize_error.to_string());
+        let guidance = if reconcile {
+            "\nDo not retry this mutation. Call list_current_objects to reconcile the actual state."
+        } else {
+            ""
+        };
+        return format!("AviUtl2 API error (HTTP {status}):\n{error}{guidance}");
+    }
+
+    let truncated = body.len() > MAX_ERROR_BODY_BYTES;
+    let body = &body[..body.len().min(MAX_ERROR_BODY_BYTES)];
+    let body = String::from_utf8_lossy(body);
+    let body = if body.is_empty() {
+        "<empty body>"
+    } else {
+        &body
+    };
+    let suffix = if truncated { "\n[truncated]" } else { "" };
+    format!("AviUtl2 API error (HTTP {status}):\n{body}{suffix}")
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -392,7 +417,7 @@ mod tests {
     use serde_json::Value;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    use super::Aviutl2Mcp;
+    use super::{Aviutl2Mcp, MAX_ERROR_BODY_BYTES, format_error_response};
 
     fn server() -> Aviutl2Mcp {
         Aviutl2Mcp {
@@ -404,11 +429,13 @@ mod tests {
     fn tools_have_strict_schemas_and_accurate_annotations() {
         let tools = Aviutl2Mcp::tool_router().list_all();
         assert_eq!(tools.len(), 8);
+        let mut tool_names = tools
+            .iter()
+            .map(|tool| tool.name.as_ref())
+            .collect::<Vec<_>>();
+        tool_names.sort_unstable();
         assert_eq!(
-            tools
-                .iter()
-                .map(|tool| tool.name.as_ref())
-                .collect::<Vec<_>>(),
+            tool_names,
             [
                 "create_media_object",
                 "create_text_object",
@@ -487,6 +514,27 @@ mod tests {
                     })
                 })
         );
+    }
+
+    #[test]
+    fn api_errors_preserve_status_and_reconciliation_guidance() {
+        let message = format_error_response(
+            ureq::http::StatusCode::INTERNAL_SERVER_ERROR,
+            br#"{"code":"mutation_outcome_unknown","message":"outcome unknown","retryable":false}"#,
+        );
+        assert!(message.contains("HTTP 500 Internal Server Error"));
+        assert!(message.contains("mutation_outcome_unknown"));
+        assert!(message.contains("\"retryable\": false"));
+        assert!(message.contains("Do not retry this mutation"));
+    }
+
+    #[test]
+    fn non_api_errors_preserve_status_and_bound_the_body() {
+        let body = vec![b'x'; MAX_ERROR_BODY_BYTES + 100];
+        let message = format_error_response(ureq::http::StatusCode::BAD_GATEWAY, &body);
+        assert!(message.contains("HTTP 502 Bad Gateway"));
+        assert!(message.ends_with("\n[truncated]"));
+        assert_eq!(message.matches('x').count(), MAX_ERROR_BODY_BYTES);
     }
 
     #[test]
