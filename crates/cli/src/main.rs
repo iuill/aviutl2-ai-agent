@@ -23,6 +23,8 @@ struct Args {
 }
 
 #[derive(Debug, Subcommand)]
+// The CLI executes one short-lived command; boxing clap variants only to reduce enum size
+// would complicate every match arm without reducing a persistent allocation.
 #[allow(clippy::large_enum_variant)]
 enum Command {
     /// Check whether the plugin HTTP listener is alive.

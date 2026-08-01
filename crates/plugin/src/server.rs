@@ -16,13 +16,13 @@ use aviutl2_ai_agent_protocol::{
     ApiError, CreateMediaObjectRequest, CreateMediaObjectResponse, CreateTextObjectRequest,
     CreateTextObjectResponse, CurrentObjectDetails, CurrentObjects, CurrentScene, CurrentTimeline,
     DeleteObjectRequest, DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse,
-    ErrorCode, Health, HealthStatus, MoveObjectRequest, MoveObjectResponse, Status,
-    UpdateTextObjectRequest, UpdateTextObjectResponse,
+    ErrorCode, Health, HealthStatus, MoveObjectRequest, MoveObjectResponse, Status, TextProperties,
+    TextPropertiesPatch, UpdateTextObjectRequest, UpdateTextObjectResponse,
 };
 #[cfg(windows)]
 use aviutl2_ai_agent_protocol::{
     EffectState, FrameRate, MediaProperties, ObjectDetails, ObjectKind, ObjectState,
-    PositionProperties, TextProperties, TimelineObject,
+    PositionProperties, TimelineObject,
 };
 
 use crate::{
@@ -62,6 +62,20 @@ const SIZE_ITEM_NAME: &str = "サイズ";
 const COLOR_ITEM_NAME: &str = "文字色";
 #[cfg(windows)]
 const FILE_ITEM_NAME: &str = "ファイル";
+#[cfg(windows)]
+const PLAYBACK_POSITION_ITEM_NAME: &str = "再生位置";
+#[cfg(windows)]
+const PLAYBACK_SPEED_ITEM_NAME: &str = "再生速度";
+#[cfg(windows)]
+const PLAYBACK_RANGE_ITEM_NAME: &str = "再生範囲";
+#[cfg(windows)]
+const DISPLAY_NUMBER_ITEM_NAME: &str = "表示番号";
+#[cfg(windows)]
+const TRACK_ITEM_NAME: &str = "トラック";
+#[cfg(windows)]
+const LOOP_PLAYBACK_ITEM_NAME: &str = "ループ再生";
+#[cfg(windows)]
+const SEQUENTIAL_FILES_ITEM_NAME: &str = "連番ファイル";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SceneRead {
@@ -73,6 +87,7 @@ type SceneReader = dyn Fn() -> Result<SceneRead, EditorError> + Send + Sync;
 type TimelineReader = dyn Fn() -> Result<CurrentTimeline, EditorError> + Send + Sync;
 type ObjectsReader = dyn Fn() -> Result<CurrentObjects, EditorError> + Send + Sync;
 type ObjectDetailsReader = dyn Fn() -> Result<CurrentObjectDetails, EditorError> + Send + Sync;
+type FrameReader = dyn Fn() -> Result<Vec<u8>, EditorError> + Send + Sync;
 type ObjectMover =
     dyn Fn(&MoveObjectRequest) -> Result<MoveObjectResponse, MutationError> + Send + Sync;
 type ObjectDeleter =
@@ -94,6 +109,7 @@ struct ServerParts {
     timeline_reader: Arc<TimelineReader>,
     objects_reader: Arc<ObjectsReader>,
     object_details_reader: Arc<ObjectDetailsReader>,
+    frame_reader: Arc<FrameReader>,
     object_mover: Arc<ObjectMover>,
     object_deleter: Arc<ObjectDeleter>,
     text_object_creator: Arc<TextObjectCreator>,
@@ -144,6 +160,7 @@ struct ServerContext {
     timeline_reader: Arc<TimelineReader>,
     objects_reader: Arc<ObjectsReader>,
     object_details_reader: Arc<ObjectDetailsReader>,
+    frame_reader: Arc<FrameReader>,
     object_mover: Arc<ObjectMover>,
     object_deleter: Arc<ObjectDeleter>,
     text_object_creator: Arc<TextObjectCreator>,
@@ -221,6 +238,7 @@ impl ApiServer {
                 timeline_reader: platform_timeline_reader(),
                 objects_reader: platform_objects_reader(),
                 object_details_reader: platform_object_details_reader(),
+                frame_reader: Arc::new(platform_current_frame),
                 object_mover: platform_object_mover(),
                 object_deleter: platform_object_deleter(),
                 text_object_creator: platform_text_object_creator(),
@@ -275,6 +293,7 @@ impl ApiServer {
             timeline_reader: parts.timeline_reader,
             objects_reader: parts.objects_reader,
             object_details_reader: parts.object_details_reader,
+            frame_reader: parts.frame_reader,
             object_mover: parts.object_mover,
             object_deleter: parts.object_deleter,
             text_object_creator: parts.text_object_creator,
@@ -801,7 +820,7 @@ fn route(request: &HttpRequest, context: &ServerContext) -> HttpResponse {
             }
         }
         (Some("GET"), Some("/v1/scenes/current/frame")) => {
-            match context.editor_gate.read(platform_current_frame) {
+            match context.editor_gate.read(|| (context.frame_reader)()) {
                 Ok(body) => HttpResponse {
                     status: "200 OK",
                     content_type: "image/png",
@@ -1179,14 +1198,25 @@ fn update_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             );
         }
     };
-    if request.patch.content.as_ref().is_some_and(|text| {
-        text.chars()
-            .any(|character| matches!(character, '\r' | '\n' | '\0'))
-    }) {
+    if request.patch.content.is_none()
+        && request.patch.font.is_none()
+        && request.patch.size.is_none()
+        && request.patch.position.is_none()
+        && request.patch.color.is_none()
+    {
         return api_error(
             "400 Bad Request",
             ErrorCode::InvalidRequest,
-            "text must not contain CR, LF, or NUL",
+            "text patch must contain at least one field",
+            false,
+            None,
+        );
+    }
+    if let Err(message) = validate_text_patch(&request.patch) {
+        return api_error(
+            "400 Bad Request",
+            ErrorCode::InvalidRequest,
+            message,
             false,
             None,
         );
@@ -1199,7 +1229,7 @@ fn update_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
         Ok(Err(TextUpdateError::SceneConflict)) => api_error(
             "409 Conflict",
             ErrorCode::StateConflict,
-            "Current scene or text does not match the request",
+            "Current scene does not match the request",
             false,
             None,
         ),
@@ -1246,6 +1276,49 @@ fn update_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             Some(RETRY_AFTER_SECONDS),
         ),
     }
+}
+
+fn validate_text_patch(patch: &TextPropertiesPatch) -> Result<(), &'static str> {
+    let has_control = |value: &str| {
+        value
+            .chars()
+            .any(|character| matches!(character, '\r' | '\n' | '\0'))
+    };
+    if patch
+        .content
+        .iter()
+        .chain(patch.font.iter())
+        .chain(patch.size.iter())
+        .chain(patch.color.iter())
+        .chain(
+            patch
+                .position
+                .iter()
+                .flat_map(|position| [&position.x, &position.y, &position.z]),
+        )
+        .any(|value| has_control(value))
+    {
+        return Err("text patch values must not contain CR, LF, or NUL");
+    }
+    let finite_number = |value: &str| value.parse::<f64>().is_ok_and(f64::is_finite);
+    if patch
+        .size
+        .as_ref()
+        .is_some_and(|value| !finite_number(value))
+        || patch.position.as_ref().is_some_and(|position| {
+            [&position.x, &position.y, &position.z]
+                .into_iter()
+                .any(|value| !finite_number(value))
+        })
+    {
+        return Err("size and position values must be finite numbers");
+    }
+    if patch.color.as_ref().is_some_and(|value| {
+        value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }) {
+        return Err("color must be exactly six hexadecimal digits");
+    }
+    Ok(())
 }
 
 fn duplicate_object(body: &[u8], context: &ServerContext) -> HttpResponse {
@@ -1612,14 +1685,14 @@ fn platform_object_details_reader() -> Arc<ObjectDetailsReader> {
                                     section.get_object_effect_item(handle, effect, 0, name).ok()
                                 };
                                 MediaProperties {
-                                    file_path: item(FILE_ITEM_NAME).unwrap_or_default(),
-                                    playback_position: item("再生位置"),
-                                    playback_speed: item("再生速度"),
-                                    playback_range: item("再生範囲"),
-                                    display_number: item("表示番号"),
-                                    track: item("トラック"),
-                                    loop_playback: item("ループ再生"),
-                                    sequential_files: item("連番ファイル"),
+                                    file_path: item(FILE_ITEM_NAME),
+                                    playback_position: item(PLAYBACK_POSITION_ITEM_NAME),
+                                    playback_speed: item(PLAYBACK_SPEED_ITEM_NAME),
+                                    playback_range: item(PLAYBACK_RANGE_ITEM_NAME),
+                                    display_number: item(DISPLAY_NUMBER_ITEM_NAME),
+                                    track: item(TRACK_ITEM_NAME),
+                                    loop_playback: item(LOOP_PLAYBACK_ITEM_NAME),
+                                    sequential_files: item(SEQUENTIAL_FILES_ITEM_NAME),
                                 }
                             });
                         objects.push(ObjectDetails {
@@ -1999,25 +2072,9 @@ fn platform_text_object_updater() -> Arc<TextObjectUpdater> {
                         .get_object_name(handle)
                         .map_err(|_| TextUpdateError::VerifyFailed)?,
                 };
-                let mut expected = current;
-                if let Some(value) = &request.patch.content {
-                    expected.content.clone_from(value);
-                }
-                if let Some(value) = &request.patch.font {
-                    expected.font.clone_from(value);
-                }
-                if let Some(value) = &request.patch.size {
-                    expected.size.clone_from(value);
-                }
-                if let Some(value) = &request.patch.color {
-                    expected.color.clone_from(value);
-                }
-                if let Some(value) = &request.patch.position {
-                    expected.position.clone_from(value);
-                }
                 let alias = section.get_object_alias(handle).unwrap_or_default();
                 assign_object_id(&scene_name, &mut object, &alias);
-                if text != expected
+                if !text_patch_matches(&current, &request.patch, &text)
                     || object.layer != target.layer
                     || object.start_frame != target.start_frame
                     || object.end_frame != target.end_frame
@@ -2029,6 +2086,41 @@ fn platform_text_object_updater() -> Arc<TextObjectUpdater> {
             })
             .map_err(|_| TextUpdateError::Unavailable)?
     })
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn text_patch_matches(
+    before: &TextProperties,
+    patch: &TextPropertiesPatch,
+    after: &TextProperties,
+) -> bool {
+    let exact = |requested: Option<&String>, previous: &str, actual: &str| {
+        requested.map_or(previous == actual, |value| value == actual)
+    };
+    let numeric = |requested: Option<&String>, previous: &str, actual: &str| {
+        requested.map_or(previous == actual, |value| {
+            value.parse::<f64>().ok() == actual.parse::<f64>().ok()
+        })
+    };
+    let color = patch
+        .color
+        .as_ref()
+        .map_or(before.color == after.color, |value| {
+            value.eq_ignore_ascii_case(&after.color)
+        });
+    let position = patch
+        .position
+        .as_ref()
+        .map_or(before.position == after.position, |value| {
+            numeric(Some(&value.x), &before.position.x, &after.position.x)
+                && numeric(Some(&value.y), &before.position.y, &after.position.y)
+                && numeric(Some(&value.z), &before.position.z, &after.position.z)
+        });
+    exact(patch.content.as_ref(), &before.content, &after.content)
+        && exact(patch.font.as_ref(), &before.font, &after.font)
+        && numeric(patch.size.as_ref(), &before.size, &after.size)
+        && color
+        && position
 }
 
 #[cfg(windows)]
@@ -2394,6 +2486,7 @@ mod tests {
                 timeline_reader: Arc::new(|| Ok(timeline())),
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_details_reader: Arc::new(|| Err(EditorError::Unavailable)),
+                frame_reader: Arc::new(|| Err(EditorError::Unavailable)),
                 object_mover: Arc::new(mover),
                 object_deleter: Arc::new(deleter),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
@@ -2484,7 +2577,7 @@ mod tests {
         }
     }
 
-    fn text_update_request(_expected: &str, content: &str) -> String {
+    fn text_update_request(content: &str) -> String {
         serde_json::json!({
             "expectedSceneName": "Root",
             "objectId": "obj-1",
@@ -2506,6 +2599,33 @@ mod tests {
                 timeline_reader: Arc::new(|| Ok(timeline())),
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_details_reader: Arc::new(reader),
+                frame_reader: Arc::new(|| Err(EditorError::Unavailable)),
+                object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                text_object_updater: Arc::new(|_| Err(super::TextUpdateError::Unavailable)),
+                object_duplicator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+                media_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
+            },
+            |_, listener, shutting_down, context| {
+                thread::Builder::new().spawn(move || worker_loop(listener, shutting_down, context))
+            },
+        )
+        .unwrap()
+    }
+
+    fn start_with_frame_reader(
+        reader: impl Fn() -> Result<Vec<u8>, EditorError> + Send + Sync + 'static,
+    ) -> ApiServer {
+        ApiServer::start_with_parts(
+            "127.0.0.1:0",
+            4,
+            ServerParts {
+                scene_reader: Arc::new(|| Ok(scene("Root", 0))),
+                timeline_reader: Arc::new(|| Ok(timeline())),
+                objects_reader: Arc::new(|| Ok(objects())),
+                object_details_reader: Arc::new(|| Err(EditorError::Unavailable)),
+                frame_reader: Arc::new(reader),
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
@@ -2538,6 +2658,7 @@ mod tests {
                 timeline_reader: Arc::new(|| Ok(timeline())),
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_details_reader: Arc::new(|| Ok(object_details())),
+                frame_reader: Arc::new(|| Err(EditorError::Unavailable)),
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
@@ -2559,6 +2680,40 @@ mod tests {
         )
     }
 
+    #[test]
+    fn current_frame_endpoint_returns_png_bytes() {
+        let png = b"\x89PNG\r\n\x1a\nframe".to_vec();
+        let expected = png.clone();
+        let server = start_with_frame_reader(move || Ok(png.clone()));
+        let mut stream = TcpStream::connect(server.local_addr()).unwrap();
+        write!(
+            stream,
+            "GET /v1/scenes/current/frame HTTP/1.1\r\nHost: {}\r\n\r\n",
+            server.local_addr()
+        )
+        .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        let head_end = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        let head = std::str::from_utf8(&response[..head_end]).unwrap();
+        assert!(head.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(head.contains("Content-Type: image/png\r\n"));
+        assert_eq!(&response[head_end..], expected);
+    }
+
+    #[test]
+    fn current_frame_endpoint_maps_reader_unavailable() {
+        let server = start_with_frame_reader(|| Err(EditorError::Unavailable));
+        let response = request(server.local_addr(), "/v1/scenes/current/frame");
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
+        let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(error.code, ErrorCode::EditorUnavailable);
+    }
+
     fn start_with_text_creator(
         creator: impl Fn(
             &aviutl2_ai_agent_protocol::CreateTextObjectRequest,
@@ -2577,6 +2732,7 @@ mod tests {
                 timeline_reader: Arc::new(|| Ok(timeline())),
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_details_reader: Arc::new(|| Err(EditorError::Unavailable)),
+                frame_reader: Arc::new(|| Err(EditorError::Unavailable)),
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(creator),
@@ -2609,6 +2765,7 @@ mod tests {
                 timeline_reader: Arc::new(|| Ok(timeline())),
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_details_reader: Arc::new(|| Err(EditorError::Unavailable)),
+                frame_reader: Arc::new(|| Err(EditorError::Unavailable)),
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
@@ -2887,7 +3044,7 @@ mod tests {
     }
 
     #[test]
-    fn update_text_endpoint_requires_expected_text_and_returns_read_back() {
+    fn update_text_endpoint_returns_read_back() {
         let server = start_with_text_updater(|request| {
             let text = aviutl2_ai_agent_protocol::TextProperties {
                 content: request.patch.content.clone().unwrap(),
@@ -2905,7 +3062,7 @@ mod tests {
                 text,
             })
         });
-        let request = text_update_request("Hello", "Updated");
+        let request = text_update_request("Updated");
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/text/update",
@@ -2919,13 +3076,13 @@ mod tests {
     }
 
     #[test]
-    fn update_text_endpoint_rejects_stale_text_and_line_breaks() {
+    fn update_text_endpoint_rejects_missing_object_and_invalid_values() {
         let server = start_with_text_updater(|_| {
             Err(super::TextUpdateError::Validation(
                 super::MoveValidationError::TargetNotFound,
             ))
         });
-        let stale = text_update_request("Old", "Updated");
+        let stale = text_update_request("Updated");
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/text/update",
@@ -2933,7 +3090,7 @@ mod tests {
         );
         assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
 
-        let invalid = text_update_request("Hello", "first\nsecond");
+        let invalid = text_update_request("first\nsecond");
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/text/update",
@@ -2945,8 +3102,97 @@ mod tests {
     }
 
     #[test]
+    fn text_patch_validation_rejects_empty_controls_and_malformed_scalars() {
+        use aviutl2_ai_agent_protocol::{PositionProperties, TextPropertiesPatch};
+
+        let empty = TextPropertiesPatch {
+            content: None,
+            font: None,
+            size: None,
+            position: None,
+            color: None,
+        };
+        let server = start_with_text_updater(|_| unreachable!());
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/text/update",
+            &serde_json::json!({
+                "expectedSceneName": "Root",
+                "objectId": "obj-1",
+                "patch": empty
+            })
+            .to_string(),
+        );
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+
+        for patch in [
+            TextPropertiesPatch {
+                font: Some("bad\0font".to_owned()),
+                ..empty.clone()
+            },
+            TextPropertiesPatch {
+                size: Some("NaN".to_owned()),
+                ..empty.clone()
+            },
+            TextPropertiesPatch {
+                position: Some(PositionProperties {
+                    x: "0".to_owned(),
+                    y: "infinity".to_owned(),
+                    z: "0".to_owned(),
+                }),
+                ..empty.clone()
+            },
+            TextPropertiesPatch {
+                color: Some("#ff0000".to_owned()),
+                ..empty.clone()
+            },
+        ] {
+            assert!(super::validate_text_patch(&patch).is_err());
+        }
+    }
+
+    #[test]
+    fn text_read_back_accepts_sdk_numeric_and_color_normalization() {
+        use aviutl2_ai_agent_protocol::{PositionProperties, TextProperties, TextPropertiesPatch};
+
+        let before = TextProperties {
+            content: "Hello".to_owned(),
+            font: "Arial".to_owned(),
+            size: "40.00".to_owned(),
+            position: PositionProperties {
+                x: "0.00".to_owned(),
+                y: "0.00".to_owned(),
+                z: "0.00".to_owned(),
+            },
+            color: "ffffff".to_owned(),
+        };
+        let patch = TextPropertiesPatch {
+            content: None,
+            font: None,
+            size: Some("48".to_owned()),
+            position: Some(PositionProperties {
+                x: "12".to_owned(),
+                y: "-8".to_owned(),
+                z: "0".to_owned(),
+            }),
+            color: Some("FF0000".to_owned()),
+        };
+        let after = TextProperties {
+            size: "48.00".to_owned(),
+            position: PositionProperties {
+                x: "12.00".to_owned(),
+                y: "-8.00".to_owned(),
+                z: "0.00".to_owned(),
+            },
+            color: "ff0000".to_owned(),
+            ..before.clone()
+        };
+        assert!(super::text_patch_matches(&before, &patch, &after));
+    }
+
+    #[test]
     fn update_text_endpoint_rejects_non_text_and_ambiguous_snapshot() {
-        let request = text_update_request("Hello", "Updated");
+        let request = text_update_request("Updated");
         for error in [
             super::TextUpdateError::NotTextObject,
             super::TextUpdateError::Validation(super::MoveValidationError::TargetAmbiguous),
@@ -2967,7 +3213,7 @@ mod tests {
     #[test]
     fn update_text_endpoint_maps_sdk_read_failure_to_unavailable() {
         let server = start_with_text_updater(|_| Err(super::TextUpdateError::Unavailable));
-        let request = text_update_request("Hello", "Updated");
+        let request = text_update_request("Updated");
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/text/update",
@@ -3139,6 +3385,7 @@ mod tests {
                 timeline_reader: Arc::new(|| Ok(timeline())),
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_details_reader: Arc::new(|| Err(EditorError::Unavailable)),
+                frame_reader: Arc::new(|| Err(EditorError::Unavailable)),
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),
@@ -3214,6 +3461,7 @@ mod tests {
                 timeline_reader: Arc::new(|| Ok(timeline())),
                 objects_reader: Arc::new(|| Ok(objects())),
                 object_details_reader: Arc::new(|| Err(EditorError::Unavailable)),
+                frame_reader: Arc::new(|| Err(EditorError::Unavailable)),
                 object_mover: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 object_deleter: Arc::new(|_| Err(super::MutationError::Unavailable)),
                 text_object_creator: Arc::new(|_| Err(super::MutationError::Unavailable)),

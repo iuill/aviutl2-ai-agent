@@ -186,14 +186,21 @@ objectの存在有無を推測する用途には使いません。scene ID、SDK
 
 これは呼出時点のcurrent sceneのsnapshotです。`layer`、`startFrame`、`endFrame` は
 0始まりで、`endFrame` を含みます。`id` はproject load世代、scene、配置、名前と内部aliasを
-一方向hashしたopaqueな一時参照です。永続IDではなく、project再読込、移動、本文や設定の
+非暗号学的hashでまとめたopaqueな一時参照です。秘密を隠す境界ではありません。永続IDではなく、project再読込、移動、本文や設定の
 更新で失効します。mutationは同じedit section内で最新objectを列挙してIDを再計算し、
 0件またはhash衝突を含む複数件なら変更しません。raw handleとaliasは返しません。
+
+project load callbackによる世代更新と、並行中のHTTP read/mutationは単一snapshotとして
+同期されません。loadと競合したrequestは更新前後どちらかの世代を観測し得るため、失効した
+IDが拒否された場合はproject load完了後にobject一覧を再取得します。
 
 `GET /v1/scenes/current/frame` はtimelineの現在frameをRGBAで非同期renderし、callback中に
 所有bufferへコピーした後、PNGへencodeして返します。HTTP responseは `image/png`、CLIは
 指定pathへ保存し、MCPはimage content blockを返します。workerから
 `wait_rendering_task` は呼ばず、2秒以内にcallbackが来なければ503にします。
+plugin unload時だけはHTTP workerを停止した後に`wait_rendering_task`を待ちます。ここに
+timeoutを設けてDLLを先にunloadすると、遅れてcallbackがDLL内コードを実行し得るためです。
+SDKまたはhostがrender完了を通知しない場合、unloadが遅延する制約があります。
 
 DNS rebindingとbrowserからの単純なcross-origin GETを避けるため、Phase 1では
 `Host: 127.0.0.1:7890` 以外と、`Origin` headerを持つrequestを拒否します。

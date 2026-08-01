@@ -108,7 +108,7 @@ pub struct PositionProperties {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaProperties {
-    pub file_path: String,
+    pub file_path: Option<String>,
     pub playback_position: Option<String>,
     pub playback_speed: Option<String>,
     pub playback_range: Option<String>,

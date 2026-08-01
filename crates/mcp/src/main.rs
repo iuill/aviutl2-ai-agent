@@ -232,7 +232,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "完全一致する1つのobjectを指定位置へ移動します。自動再試行しないでください。",
+        description = "list_current_objectsが返した現在のobject IDを使い、1つのobjectを指定位置へ移動します。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -255,7 +255,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "完全一致する1つのobjectを削除します。自動再試行しないでください。",
+        description = "list_current_objectsが返した現在のobject IDを使い、1つのobjectを削除します。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -331,7 +331,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "完全一致する1つのobjectを指定位置へ複製します。自動再試行しないでください。",
+        description = "list_current_objectsが返した現在のobject IDを使い、1つのobjectを指定位置へ複製します。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -728,6 +728,20 @@ mod tests {
                 .unwrap();
                 stream.flush().unwrap();
             }
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let length = stream.read(&mut request).unwrap();
+            let request = std::str::from_utf8(&request[..length]).unwrap();
+            assert!(request.starts_with("GET /v1/scenes/current/frame HTTP/1.1\r\n"));
+            let png = b"\x89PNG\r\n\x1a\nframe";
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                png.len()
+            )
+            .unwrap();
+            stream.write_all(png).unwrap();
+            stream.flush().unwrap();
         });
         (endpoint, task)
     }
@@ -901,6 +915,19 @@ mod tests {
                     .contains(expected)
             );
         }
+
+        writer
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"get_current_frame\",\"arguments\":{}}}\n")
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        response.clear();
+        reader.read_line(&mut response).await.unwrap();
+        let response: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["id"], 6);
+        assert_eq!(response["result"]["isError"], false);
+        assert_eq!(response["result"]["content"][0]["type"], "image");
+        assert_eq!(response["result"]["content"][0]["mimeType"], "image/png");
 
         drop(writer);
         drop(reader);
