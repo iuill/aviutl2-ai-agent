@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::hash::{Hash, Hasher};
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
@@ -18,7 +20,10 @@ use aviutl2_ai_agent_protocol::{
     UpdateTextObjectRequest, UpdateTextObjectResponse,
 };
 #[cfg(windows)]
-use aviutl2_ai_agent_protocol::{FrameRate, ObjectDetails, ObjectKind, TimelineObject};
+use aviutl2_ai_agent_protocol::{
+    EffectState, FrameRate, MediaProperties, ObjectDetails, ObjectKind, ObjectState,
+    PositionProperties, TextProperties, TimelineObject,
+};
 
 use crate::{
     editor::{EditorError, EditorGate},
@@ -47,6 +52,16 @@ const TEXT_ITEM_NAME: &str = "テキスト";
 const IMAGE_EFFECT_NAME: &str = "画像ファイル";
 #[cfg(windows)]
 const AUDIO_EFFECT_NAME: &str = "音声ファイル";
+#[cfg(windows)]
+const DRAW_EFFECT_NAME: &str = "標準描画";
+#[cfg(windows)]
+const FONT_ITEM_NAME: &str = "フォント";
+#[cfg(windows)]
+const SIZE_ITEM_NAME: &str = "サイズ";
+#[cfg(windows)]
+const COLOR_ITEM_NAME: &str = "文字色";
+#[cfg(windows)]
+const FILE_ITEM_NAME: &str = "ファイル";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SceneRead {
@@ -105,7 +120,6 @@ enum TextUpdateError {
     SceneConflict,
     Validation(MoveValidationError),
     NotTextObject,
-    TextConflict,
     ApplyFailed,
     VerifyFailed,
 }
@@ -400,8 +414,9 @@ fn write_response(
     connection_id: u64,
 ) {
     let mut head = format!(
-        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
         response.status,
+        response.content_type,
         response.body.len()
     );
     if let Some(retry_after) = response.retry_after {
@@ -646,6 +661,7 @@ fn parse_content_length(head: &str) -> Option<usize> {
 
 struct HttpResponse {
     status: &'static str,
+    content_type: &'static str,
     body: Vec<u8>,
     retry_after: Option<u64>,
 }
@@ -784,6 +800,30 @@ fn route(request: &HttpRequest, context: &ServerContext) -> HttpResponse {
                 ),
             }
         }
+        (Some("GET"), Some("/v1/scenes/current/frame")) => {
+            match context.editor_gate.read(platform_current_frame) {
+                Ok(body) => HttpResponse {
+                    status: "200 OK",
+                    content_type: "image/png",
+                    body,
+                    retry_after: None,
+                },
+                Err(EditorError::Busy) => api_error(
+                    "503 Service Unavailable",
+                    ErrorCode::EditorBusy,
+                    "EditorGate is busy",
+                    true,
+                    Some(RETRY_AFTER_SECONDS),
+                ),
+                Err(EditorError::Unavailable) => api_error(
+                    "503 Service Unavailable",
+                    ErrorCode::EditorUnavailable,
+                    "AviUtl2 did not render the frame",
+                    true,
+                    Some(RETRY_AFTER_SECONDS),
+                ),
+            }
+        }
         (Some("POST"), Some("/v1/scenes/current/objects/move")) => {
             if !has_json_content_type(&request.head) {
                 api_error(
@@ -898,6 +938,7 @@ fn json_response(value: &impl serde::Serialize) -> HttpResponse {
     match serde_json::to_vec(value) {
         Ok(body) => HttpResponse {
             status: "200 OK",
+            content_type: "application/json",
             body,
             retry_after: None,
         },
@@ -1138,11 +1179,10 @@ fn update_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
             );
         }
     };
-    if request
-        .text
-        .chars()
-        .any(|character| matches!(character, '\r' | '\n' | '\0'))
-    {
+    if request.patch.content.as_ref().is_some_and(|text| {
+        text.chars()
+            .any(|character| matches!(character, '\r' | '\n' | '\0'))
+    }) {
         return api_error(
             "400 Bad Request",
             ErrorCode::InvalidRequest,
@@ -1156,7 +1196,7 @@ fn update_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
         .read(|| Ok((context.text_object_updater)(&request)))
     {
         Ok(Ok(response)) => json_response(&response),
-        Ok(Err(TextUpdateError::SceneConflict | TextUpdateError::TextConflict)) => api_error(
+        Ok(Err(TextUpdateError::SceneConflict)) => api_error(
             "409 Conflict",
             ErrorCode::StateConflict,
             "Current scene or text does not match the request",
@@ -1367,6 +1407,7 @@ fn api_error(
     .expect("ApiError is serializable");
     HttpResponse {
         status,
+        content_type: "application/json",
         body,
         retry_after,
     }
@@ -1447,6 +1488,39 @@ fn sdk_usize(value: u64) -> Result<usize, MutationError> {
 }
 
 #[cfg(windows)]
+fn assign_object_id(scene_name: &str, object: &mut TimelineObject, alias: &str) {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    crate::windows_plugin::PROJECT_GENERATION
+        .load(Ordering::Relaxed)
+        .hash(&mut hasher);
+    scene_name.hash(&mut hasher);
+    object.layer.hash(&mut hasher);
+    object.start_frame.hash(&mut hasher);
+    object.end_frame.hash(&mut hasher);
+    object.name.hash(&mut hasher);
+    alias.hash(&mut hasher);
+    object.id = format!("obj-{:016x}", hasher.finish());
+}
+
+#[cfg(windows)]
+fn locate_object_id(
+    objects: &[TimelineObject],
+    object_id: &str,
+) -> Result<usize, MoveValidationError> {
+    let mut matches = objects
+        .iter()
+        .enumerate()
+        .filter(|(_, object)| object.id == object_id);
+    let Some((index, _)) = matches.next() else {
+        return Err(MoveValidationError::TargetNotFound);
+    };
+    if matches.next().is_some() {
+        return Err(MoveValidationError::TargetAmbiguous);
+    }
+    Ok(index)
+}
+
+#[cfg(windows)]
 fn platform_objects_reader() -> Arc<ObjectsReader> {
     Arc::new(|| {
         if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
@@ -1455,15 +1529,20 @@ fn platform_objects_reader() -> Arc<ObjectsReader> {
         let info = crate::windows_plugin::EDIT_HANDLE.get_edit_info();
         crate::windows_plugin::EDIT_HANDLE
             .call_read_section(|section| {
+                let scene_name = section.get_scene_name().unwrap_or_default();
                 let mut objects = Vec::new();
                 for layer in 0..=info.layer_max {
                     for (position, handle) in section.objects_in_layer(layer) {
-                        objects.push(TimelineObject {
+                        let mut object = TimelineObject {
+                            id: String::new(),
                             layer: sdk_u64(position.layer),
                             start_frame: sdk_u64(position.start),
                             end_frame: sdk_u64(position.end),
                             name: section.get_object_name(handle).ok().flatten(),
-                        });
+                        };
+                        let alias = section.get_object_alias(handle).unwrap_or_default();
+                        assign_object_id(&scene_name, &mut object, &alias);
+                        objects.push(object);
                     }
                 }
                 CurrentObjects { objects }
@@ -1481,42 +1560,160 @@ fn platform_object_details_reader() -> Arc<ObjectDetailsReader> {
         let info = crate::windows_plugin::EDIT_HANDLE.get_edit_info();
         crate::windows_plugin::EDIT_HANDLE
             .call_read_section(|section| {
+                let scene_name = section.get_scene_name().unwrap_or_default();
                 let mut objects = Vec::new();
                 for layer in 0..=info.layer_max {
                     for (position, handle) in section.objects_in_layer(layer) {
-                        let object = TimelineObject {
+                        let mut object = TimelineObject {
+                            id: String::new(),
                             layer: sdk_u64(position.layer),
                             start_frame: sdk_u64(position.start),
                             end_frame: sdk_u64(position.end),
                             name: section.get_object_name(handle).ok().flatten(),
                         };
+                        let alias = section.get_object_alias(handle).unwrap_or_default();
+                        assign_object_id(&scene_name, &mut object, &alias);
                         let primary_effect = section
                             .get_first_effect(handle)
                             .and_then(|effect| section.get_effect_name(effect))
                             .ok();
-                        let (kind, text) = match primary_effect.as_deref() {
-                            Some(TEXT_EFFECT_NAME) => (
-                                ObjectKind::Text,
-                                section
-                                    .get_object_effect_item(
-                                        handle,
-                                        TEXT_EFFECT_NAME,
-                                        0,
-                                        TEXT_ITEM_NAME,
-                                    )
-                                    .ok(),
-                            ),
-                            Some(IMAGE_EFFECT_NAME) => (ObjectKind::Image, None),
-                            Some(AUDIO_EFFECT_NAME) => (ObjectKind::Audio, None),
-                            _ => (ObjectKind::Unknown, None),
+                        let effects = section.get_effects(handle).unwrap_or_default();
+                        let state = ObjectState {
+                            layer_enabled: section
+                                .get_layer_enable(position.layer)
+                                .unwrap_or(false),
+                            layer_locked: section.get_layer_lock(position.layer).unwrap_or(false),
+                            effects: effects
+                                .into_iter()
+                                .filter_map(|effect| {
+                                    Some(EffectState {
+                                        name: section.get_effect_name(effect).ok()?,
+                                        enabled: section.get_effect_enable(effect).ok()?,
+                                        locked: section.get_effect_lock(effect).ok()?,
+                                    })
+                                })
+                                .collect(),
                         };
-                        objects.push(ObjectDetails { object, kind, text });
+                        let kind = match primary_effect.as_deref() {
+                            Some(TEXT_EFFECT_NAME) => ObjectKind::Text,
+                            Some(IMAGE_EFFECT_NAME) => ObjectKind::Image,
+                            Some(AUDIO_EFFECT_NAME) => ObjectKind::Audio,
+                            _ => ObjectKind::Unknown,
+                        };
+                        let text = (kind == ObjectKind::Text)
+                            .then(|| read_text_properties(section, handle))
+                            .transpose()
+                            .ok()
+                            .flatten();
+                        let media =
+                            matches!(kind, ObjectKind::Image | ObjectKind::Audio).then(|| {
+                                let effect = primary_effect.as_deref().unwrap_or_default();
+                                let item = |name| {
+                                    section.get_object_effect_item(handle, effect, 0, name).ok()
+                                };
+                                MediaProperties {
+                                    file_path: item(FILE_ITEM_NAME).unwrap_or_default(),
+                                    playback_position: item("再生位置"),
+                                    playback_speed: item("再生速度"),
+                                    playback_range: item("再生範囲"),
+                                    display_number: item("表示番号"),
+                                    track: item("トラック"),
+                                    loop_playback: item("ループ再生"),
+                                    sequential_files: item("連番ファイル"),
+                                }
+                            });
+                        objects.push(ObjectDetails {
+                            object,
+                            kind,
+                            state,
+                            text,
+                            media,
+                        });
                     }
                 }
                 Ok(CurrentObjectDetails { objects })
             })
             .map_err(|_| EditorError::Unavailable)?
     })
+}
+
+#[cfg(windows)]
+fn read_text_properties(
+    section: &aviutl2::generic::ReadSection,
+    handle: aviutl2::generic::ObjectHandle,
+) -> Result<TextProperties, ()> {
+    let get = |effect, item| {
+        section
+            .get_object_effect_item(handle, effect, 0, item)
+            .map_err(|_| ())
+    };
+    Ok(TextProperties {
+        content: get(TEXT_EFFECT_NAME, TEXT_ITEM_NAME)?,
+        font: get(TEXT_EFFECT_NAME, FONT_ITEM_NAME)?,
+        size: get(TEXT_EFFECT_NAME, SIZE_ITEM_NAME)?,
+        position: PositionProperties {
+            x: get(DRAW_EFFECT_NAME, "X")?,
+            y: get(DRAW_EFFECT_NAME, "Y")?,
+            z: get(DRAW_EFFECT_NAME, "Z")?,
+        },
+        color: get(TEXT_EFFECT_NAME, COLOR_ITEM_NAME)?,
+    })
+}
+
+#[cfg(windows)]
+fn platform_current_frame() -> Result<Vec<u8>, EditorError> {
+    if !crate::windows_plugin::EDIT_HANDLE.is_ready() {
+        return Err(EditorError::Unavailable);
+    }
+    let frame = u32::try_from(crate::windows_plugin::EDIT_HANDLE.get_edit_info().frame)
+        .map_err(|_| EditorError::Unavailable)?;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    crate::windows_plugin::EDIT_HANDLE
+        .rendering_scene_video(frame, move |video| {
+            let _ = sender.send((
+                video.width,
+                video.height,
+                video.pitch,
+                video.buffer.to_vec(),
+            ));
+        })
+        .map_err(|_| EditorError::Unavailable)?;
+    let (width, height, pitch, buffer) = receiver
+        .recv_timeout(Duration::from_secs(2))
+        .map_err(|_| EditorError::Unavailable)?;
+    let row_bytes = usize::try_from(width)
+        .ok()
+        .and_then(|width| width.checked_mul(4))
+        .ok_or(EditorError::Unavailable)?;
+    let pitch = usize::try_from(pitch).map_err(|_| EditorError::Unavailable)?;
+    if pitch < row_bytes {
+        return Err(EditorError::Unavailable);
+    }
+    let mut rgba = Vec::with_capacity(row_bytes.saturating_mul(height as usize));
+    for row in buffer.chunks_exact(pitch).take(height as usize) {
+        rgba.extend_from_slice(&row[..row_bytes]);
+    }
+    if rgba.len() != row_bytes.saturating_mul(height as usize) {
+        return Err(EditorError::Unavailable);
+    }
+    let mut output = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut output, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|_| EditorError::Unavailable)?;
+        writer
+            .write_image_data(&rgba)
+            .map_err(|_| EditorError::Unavailable)?;
+    }
+    Ok(output)
+}
+
+#[cfg(not(windows))]
+fn platform_current_frame() -> Result<Vec<u8>, EditorError> {
+    Err(EditorError::Unavailable)
 }
 
 #[cfg(windows)]
@@ -1543,6 +1740,7 @@ fn platform_object_mover() -> Arc<ObjectMover> {
                     for (position, handle) in section.objects_in_layer(layer) {
                         handles.push(handle);
                         objects.push(TimelineObject {
+                            id: String::new(),
                             layer: sdk_u64(position.layer),
                             start_frame: sdk_u64(position.start),
                             end_frame: sdk_u64(position.end),
@@ -1550,8 +1748,15 @@ fn platform_object_mover() -> Arc<ObjectMover> {
                         });
                     }
                 }
+                for (object, handle) in objects.iter_mut().zip(handles.iter().copied()) {
+                    let alias = section.get_object_alias(handle).unwrap_or_default();
+                    assign_object_id(&scene_name, object, &alias);
+                }
+                let target_index = locate_object_id(&objects, &request.object_id)
+                    .map_err(MutationError::Validation)?;
+                let target = objects[target_index].clone();
                 let (target_index, expected) =
-                    crate::mutation::validate_move(&objects, &request.target, &request.destination)
+                    crate::mutation::validate_move(&objects, &target, &request.destination)
                         .map_err(MutationError::Validation)?;
                 let handle = handles[target_index];
                 section
@@ -1560,7 +1765,8 @@ fn platform_object_mover() -> Arc<ObjectMover> {
                 let position = section
                     .get_object_layer_frame(handle)
                     .map_err(|_| MutationError::VerifyFailed)?;
-                let actual = TimelineObject {
+                let mut actual = TimelineObject {
+                    id: String::new(),
                     layer: sdk_u64(position.layer),
                     start_frame: sdk_u64(position.start),
                     end_frame: sdk_u64(position.end),
@@ -1571,6 +1777,8 @@ fn platform_object_mover() -> Arc<ObjectMover> {
                 if actual != expected {
                     return Err(MutationError::VerifyFailed);
                 }
+                let alias = section.get_object_alias(handle).unwrap_or_default();
+                assign_object_id(&scene_name, &mut actual, &alias);
                 Ok(MoveObjectResponse { object: actual })
             })
             .map_err(|_| MutationError::Unavailable)?
@@ -1608,6 +1816,7 @@ fn platform_object_deleter() -> Arc<ObjectDeleter> {
                     for (position, handle) in section.objects_in_layer(layer) {
                         handles.push(handle);
                         objects.push(TimelineObject {
+                            id: String::new(),
                             layer: sdk_u64(position.layer),
                             start_frame: sdk_u64(position.start),
                             end_frame: sdk_u64(position.end),
@@ -1615,8 +1824,13 @@ fn platform_object_deleter() -> Arc<ObjectDeleter> {
                         });
                     }
                 }
-                let target_index = crate::mutation::locate_exact(&objects, &request.target)
+                for (object, handle) in objects.iter_mut().zip(handles.iter().copied()) {
+                    let alias = section.get_object_alias(handle).unwrap_or_default();
+                    assign_object_id(&scene_name, object, &alias);
+                }
+                let target_index = locate_object_id(&objects, &request.object_id)
                     .map_err(MutationError::Validation)?;
+                let deleted = objects[target_index].clone();
                 let handle = handles[target_index];
                 section
                     .delete_object(handle)
@@ -1624,9 +1838,7 @@ fn platform_object_deleter() -> Arc<ObjectDeleter> {
                 if section.object_exists(handle) {
                     return Err(MutationError::VerifyFailed);
                 }
-                Ok(DeleteObjectResponse {
-                    deleted: request.target.clone(),
-                })
+                Ok(DeleteObjectResponse { deleted })
             })
             .map_err(|_| MutationError::Unavailable)?
     })
@@ -1654,6 +1866,7 @@ fn platform_text_object_creator() -> Arc<TextObjectCreator> {
                 for layer in 0..=layer_max {
                     for (position, handle) in section.objects_in_layer(layer) {
                         objects.push(TimelineObject {
+                            id: String::new(),
                             layer: sdk_u64(position.layer),
                             start_frame: sdk_u64(position.start),
                             end_frame: sdk_u64(position.end),
@@ -1678,7 +1891,8 @@ fn platform_text_object_creator() -> Arc<TextObjectCreator> {
                 let position = section
                     .get_object_layer_frame(handle)
                     .map_err(|_| MutationError::VerifyFailed)?;
-                let actual = TimelineObject {
+                let mut actual = TimelineObject {
+                    id: String::new(),
                     layer: sdk_u64(position.layer),
                     start_frame: sdk_u64(position.start),
                     end_frame: sdk_u64(position.end),
@@ -1692,6 +1906,8 @@ fn platform_text_object_creator() -> Arc<TextObjectCreator> {
                 if actual != expected || text != request.text {
                     return Err(MutationError::VerifyFailed);
                 }
+                let alias = section.get_object_alias(handle).unwrap_or_default();
+                assign_object_id(&scene_name, &mut actual, &alias);
                 Ok(CreateTextObjectResponse {
                     object: actual,
                     text,
@@ -1722,6 +1938,7 @@ fn platform_text_object_updater() -> Arc<TextObjectUpdater> {
                     for (position, handle) in section.objects_in_layer(layer) {
                         handles.push(handle);
                         objects.push(TimelineObject {
+                            id: String::new(),
                             layer: sdk_u64(position.layer),
                             start_frame: sdk_u64(position.start),
                             end_frame: sdk_u64(position.end),
@@ -1729,8 +1946,13 @@ fn platform_text_object_updater() -> Arc<TextObjectUpdater> {
                         });
                     }
                 }
-                let target_index = crate::mutation::locate_exact(&objects, &request.target)
+                for (object, handle) in objects.iter_mut().zip(handles.iter().copied()) {
+                    let alias = section.get_object_alias(handle).unwrap_or_default();
+                    assign_object_id(&scene_name, object, &alias);
+                }
+                let target_index = locate_object_id(&objects, &request.object_id)
                     .map_err(TextUpdateError::Validation)?;
+                let target = objects[target_index].clone();
                 let handle = handles[target_index];
                 let primary_effect = section
                     .get_first_effect(handle)
@@ -1739,28 +1961,37 @@ fn platform_text_object_updater() -> Arc<TextObjectUpdater> {
                 if primary_effect != TEXT_EFFECT_NAME {
                     return Err(TextUpdateError::NotTextObject);
                 }
-                let current_text = section
-                    .get_object_effect_item(handle, TEXT_EFFECT_NAME, 0, TEXT_ITEM_NAME)
+                let current = read_text_properties(section, handle)
                     .map_err(|_| TextUpdateError::Unavailable)?;
-                if current_text != request.expected_text {
-                    return Err(TextUpdateError::TextConflict);
+                let set = |effect, item, value: &str| {
+                    section
+                        .set_object_effect_item(handle, effect, 0, item, value)
+                        .map_err(|_| TextUpdateError::ApplyFailed)
+                };
+                if let Some(value) = &request.patch.content {
+                    set(TEXT_EFFECT_NAME, TEXT_ITEM_NAME, value)?;
                 }
-                section
-                    .set_object_effect_item(
-                        handle,
-                        TEXT_EFFECT_NAME,
-                        0,
-                        TEXT_ITEM_NAME,
-                        &request.text,
-                    )
-                    .map_err(|_| TextUpdateError::ApplyFailed)?;
-                let text = section
-                    .get_object_effect_item(handle, TEXT_EFFECT_NAME, 0, TEXT_ITEM_NAME)
+                if let Some(value) = &request.patch.font {
+                    set(TEXT_EFFECT_NAME, FONT_ITEM_NAME, value)?;
+                }
+                if let Some(value) = &request.patch.size {
+                    set(TEXT_EFFECT_NAME, SIZE_ITEM_NAME, value)?;
+                }
+                if let Some(value) = &request.patch.color {
+                    set(TEXT_EFFECT_NAME, COLOR_ITEM_NAME, value)?;
+                }
+                if let Some(value) = &request.patch.position {
+                    set(DRAW_EFFECT_NAME, "X", &value.x)?;
+                    set(DRAW_EFFECT_NAME, "Y", &value.y)?;
+                    set(DRAW_EFFECT_NAME, "Z", &value.z)?;
+                }
+                let text = read_text_properties(section, handle)
                     .map_err(|_| TextUpdateError::VerifyFailed)?;
                 let position = section
                     .get_object_layer_frame(handle)
                     .map_err(|_| TextUpdateError::VerifyFailed)?;
-                let object = TimelineObject {
+                let mut object = TimelineObject {
+                    id: String::new(),
                     layer: sdk_u64(position.layer),
                     start_frame: sdk_u64(position.start),
                     end_frame: sdk_u64(position.end),
@@ -1768,7 +1999,30 @@ fn platform_text_object_updater() -> Arc<TextObjectUpdater> {
                         .get_object_name(handle)
                         .map_err(|_| TextUpdateError::VerifyFailed)?,
                 };
-                if text != request.text || object != request.target {
+                let mut expected = current;
+                if let Some(value) = &request.patch.content {
+                    expected.content.clone_from(value);
+                }
+                if let Some(value) = &request.patch.font {
+                    expected.font.clone_from(value);
+                }
+                if let Some(value) = &request.patch.size {
+                    expected.size.clone_from(value);
+                }
+                if let Some(value) = &request.patch.color {
+                    expected.color.clone_from(value);
+                }
+                if let Some(value) = &request.patch.position {
+                    expected.position.clone_from(value);
+                }
+                let alias = section.get_object_alias(handle).unwrap_or_default();
+                assign_object_id(&scene_name, &mut object, &alias);
+                if text != expected
+                    || object.layer != target.layer
+                    || object.start_frame != target.start_frame
+                    || object.end_frame != target.end_frame
+                    || object.name != target.name
+                {
                     return Err(TextUpdateError::VerifyFailed);
                 }
                 Ok(UpdateTextObjectResponse { object, text })
@@ -1798,6 +2052,7 @@ fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
                     for (position, handle) in section.objects_in_layer(layer) {
                         handles.push(handle);
                         objects.push(TimelineObject {
+                            id: String::new(),
                             layer: sdk_u64(position.layer),
                             start_frame: sdk_u64(position.start),
                             end_frame: sdk_u64(position.end),
@@ -1805,12 +2060,16 @@ fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
                         });
                     }
                 }
-                let (target_index, expected) = crate::mutation::validate_duplicate(
-                    &objects,
-                    &request.target,
-                    &request.destination,
-                )
-                .map_err(MutationError::Validation)?;
+                for (object, handle) in objects.iter_mut().zip(handles.iter().copied()) {
+                    let alias = section.get_object_alias(handle).unwrap_or_default();
+                    assign_object_id(&scene_name, object, &alias);
+                }
+                let target_index = locate_object_id(&objects, &request.object_id)
+                    .map_err(MutationError::Validation)?;
+                let target = objects[target_index].clone();
+                let (target_index, expected) =
+                    crate::mutation::validate_duplicate(&objects, &target, &request.destination)
+                        .map_err(MutationError::Validation)?;
                 let alias = section
                     .get_object_alias(handles[target_index])
                     .map_err(|_| MutationError::ApplyFailed)?;
@@ -1824,7 +2083,8 @@ fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
                 let position = section
                     .get_object_layer_frame(handle)
                     .map_err(|_| MutationError::VerifyFailed)?;
-                let actual = TimelineObject {
+                let mut actual = TimelineObject {
+                    id: String::new(),
                     layer: sdk_u64(position.layer),
                     start_frame: sdk_u64(position.start),
                     end_frame: sdk_u64(position.end),
@@ -1840,6 +2100,8 @@ fn platform_object_duplicator() -> Arc<ObjectDuplicator> {
                 {
                     return Err(MutationError::VerifyFailed);
                 }
+                let result_alias = section.get_object_alias(handle).unwrap_or_default();
+                assign_object_id(&scene_name, &mut actual, &result_alias);
                 Ok(DuplicateObjectResponse { object: actual })
             })
             .map_err(|_| MutationError::Unavailable)?
@@ -1872,6 +2134,7 @@ fn platform_media_object_creator() -> Arc<MediaObjectCreator> {
                 for layer in 0..=layer_max {
                     for (position, handle) in section.objects_in_layer(layer) {
                         objects.push(TimelineObject {
+                            id: String::new(),
                             layer: sdk_u64(position.layer),
                             start_frame: sdk_u64(position.start),
                             end_frame: sdk_u64(position.end),
@@ -1898,16 +2161,18 @@ fn platform_media_object_creator() -> Arc<MediaObjectCreator> {
                 {
                     return Err(MutationError::VerifyFailed);
                 }
-                Ok(CreateMediaObjectResponse {
-                    object: TimelineObject {
-                        layer: sdk_u64(position.layer),
-                        start_frame: sdk_u64(position.start),
-                        end_frame: sdk_u64(position.end),
-                        name: section
-                            .get_object_name(handle)
-                            .map_err(|_| MutationError::VerifyFailed)?,
-                    },
-                })
+                let mut object = TimelineObject {
+                    id: String::new(),
+                    layer: sdk_u64(position.layer),
+                    start_frame: sdk_u64(position.start),
+                    end_frame: sdk_u64(position.end),
+                    name: section
+                        .get_object_name(handle)
+                        .map_err(|_| MutationError::VerifyFailed)?,
+                };
+                let alias = section.get_object_alias(handle).unwrap_or_default();
+                assign_object_id(&scene_name, &mut object, &alias);
+                Ok(CreateMediaObjectResponse { object })
             })
             .map_err(|_| MutationError::Unavailable)?;
         write_media_mutation_debug(media_path, &result);
@@ -2167,6 +2432,7 @@ mod tests {
     fn objects() -> aviutl2_ai_agent_protocol::CurrentObjects {
         aviutl2_ai_agent_protocol::CurrentObjects {
             objects: vec![aviutl2_ai_agent_protocol::TimelineObject {
+                id: "obj-1".to_owned(),
                 layer: 0,
                 start_frame: 10,
                 end_frame: 39,
@@ -2176,25 +2442,54 @@ mod tests {
     }
 
     fn object_details() -> aviutl2_ai_agent_protocol::CurrentObjectDetails {
+        let text = aviutl2_ai_agent_protocol::TextProperties {
+            content: "Hello".to_owned(),
+            font: "Yu Gothic UI".to_owned(),
+            size: "40.00".to_owned(),
+            position: aviutl2_ai_agent_protocol::PositionProperties {
+                x: "0.00".to_owned(),
+                y: "0.00".to_owned(),
+                z: "0.00".to_owned(),
+            },
+            color: "ffffff".to_owned(),
+        };
+        let state = aviutl2_ai_agent_protocol::ObjectState {
+            layer_enabled: true,
+            layer_locked: false,
+            effects: vec![],
+        };
         aviutl2_ai_agent_protocol::CurrentObjectDetails {
             objects: vec![
                 aviutl2_ai_agent_protocol::ObjectDetails {
                     object: objects().objects[0].clone(),
                     kind: aviutl2_ai_agent_protocol::ObjectKind::Text,
-                    text: Some("Hello".to_owned()),
+                    state: state.clone(),
+                    text: Some(text),
+                    media: None,
                 },
                 aviutl2_ai_agent_protocol::ObjectDetails {
                     object: aviutl2_ai_agent_protocol::TimelineObject {
+                        id: "obj-2".to_owned(),
                         layer: 1,
                         start_frame: 10,
                         end_frame: 39,
                         name: None,
                     },
                     kind: aviutl2_ai_agent_protocol::ObjectKind::Text,
+                    state,
                     text: None,
+                    media: None,
                 },
             ],
         }
+    }
+
+    fn text_update_request(_expected: &str, content: &str) -> String {
+        serde_json::json!({
+            "expectedSceneName": "Root",
+            "objectId": "obj-1",
+            "patch": {"content": content, "font": null, "size": null, "position": null, "color": null}
+        }).to_string()
     }
 
     fn start_with_object_details_reader(
@@ -2440,15 +2735,16 @@ mod tests {
                 assert_eq!(request.expected_scene_name, "Root");
                 Ok(aviutl2_ai_agent_protocol::MoveObjectResponse {
                     object: aviutl2_ai_agent_protocol::TimelineObject {
+                        id: "obj-moved".to_owned(),
                         layer: request.destination.layer,
                         start_frame: request.destination.start_frame,
                         end_frame: request.destination.start_frame + 29,
-                        name: request.target.name.clone(),
+                        name: Some("Title".to_owned()),
                     },
                 })
             },
         );
-        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let request = r#"{"expectedSceneName":"Root","objectId":"obj-1","destination":{"layer":2,"startFrame":100}}"#;
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/move",
@@ -2471,7 +2767,7 @@ mod tests {
         let invalid = post(server.local_addr(), "/v1/scenes/current/objects/move", "{}");
         assert!(invalid.starts_with("HTTP/1.1 400 Bad Request\r\n"));
 
-        let request = r#"{"expectedSceneName":"Other","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let request = r#"{"expectedSceneName":"Other","objectId":"obj-1","destination":{"layer":2,"startFrame":100}}"#;
         let conflict = post(
             server.local_addr(),
             "/v1/scenes/current/objects/move",
@@ -2489,7 +2785,7 @@ mod tests {
             || Ok(scene("Root", 0)),
             |_| Err(super::MutationError::VerifyFailed),
         );
-        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let request = r#"{"expectedSceneName":"Root","objectId":"obj-1","destination":{"layer":2,"startFrame":100}}"#;
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/move",
@@ -2509,11 +2805,11 @@ mod tests {
             |request| {
                 assert_eq!(request.expected_scene_name, "Root");
                 Ok(aviutl2_ai_agent_protocol::DeleteObjectResponse {
-                    deleted: request.target.clone(),
+                    deleted: objects().objects[0].clone(),
                 })
             },
         );
-        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}}"#;
+        let request = r#"{"expectedSceneName":"Root","objectId":"obj-1"}"#;
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/delete",
@@ -2535,7 +2831,7 @@ mod tests {
                 ))
             },
         );
-        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}}"#;
+        let request = r#"{"expectedSceneName":"Root","objectId":"obj-1"}"#;
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/delete",
@@ -2551,6 +2847,7 @@ mod tests {
         let server = start_with_text_creator(|request| {
             Ok(aviutl2_ai_agent_protocol::CreateTextObjectResponse {
                 object: aviutl2_ai_agent_protocol::TimelineObject {
+                    id: "obj-updated".to_owned(),
                     layer: request.layer,
                     start_frame: request.start_frame,
                     end_frame: request.start_frame + request.length - 1,
@@ -2592,41 +2889,55 @@ mod tests {
     #[test]
     fn update_text_endpoint_requires_expected_text_and_returns_read_back() {
         let server = start_with_text_updater(|request| {
-            assert_eq!(request.expected_text, "Hello");
+            let text = aviutl2_ai_agent_protocol::TextProperties {
+                content: request.patch.content.clone().unwrap(),
+                font: "Yu Gothic UI".to_owned(),
+                size: "40.00".to_owned(),
+                position: aviutl2_ai_agent_protocol::PositionProperties {
+                    x: "0.00".to_owned(),
+                    y: "0.00".to_owned(),
+                    z: "0.00".to_owned(),
+                },
+                color: "ffffff".to_owned(),
+            };
             Ok(aviutl2_ai_agent_protocol::UpdateTextObjectResponse {
-                object: request.target.clone(),
-                text: request.text.clone(),
+                object: objects().objects[0].clone(),
+                text,
             })
         });
-        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"expectedText":"Hello","text":"Updated"}"#;
+        let request = text_update_request("Hello", "Updated");
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/text/update",
-            request,
+            &request,
         );
         assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
         let updated: aviutl2_ai_agent_protocol::UpdateTextObjectResponse =
             serde_json::from_str(body(&response)).unwrap();
-        assert_eq!(updated.text, "Updated");
+        assert_eq!(updated.text.content, "Updated");
         assert_eq!(updated.object, objects().objects[0]);
     }
 
     #[test]
     fn update_text_endpoint_rejects_stale_text_and_line_breaks() {
-        let server = start_with_text_updater(|_| Err(super::TextUpdateError::TextConflict));
-        let stale = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"expectedText":"Old","text":"Updated"}"#;
+        let server = start_with_text_updater(|_| {
+            Err(super::TextUpdateError::Validation(
+                super::MoveValidationError::TargetNotFound,
+            ))
+        });
+        let stale = text_update_request("Old", "Updated");
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/text/update",
-            stale,
+            &stale,
         );
-        assert!(response.starts_with("HTTP/1.1 409 Conflict\r\n"));
+        assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
 
-        let invalid = "{\"expectedSceneName\":\"Root\",\"target\":{\"layer\":0,\"startFrame\":10,\"endFrame\":39,\"name\":\"Title\"},\"expectedText\":\"Hello\",\"text\":\"first\\nsecond\"}";
+        let invalid = text_update_request("Hello", "first\nsecond");
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/text/update",
-            invalid,
+            &invalid,
         );
         assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
         let error: ApiError = serde_json::from_str(body(&response)).unwrap();
@@ -2635,7 +2946,7 @@ mod tests {
 
     #[test]
     fn update_text_endpoint_rejects_non_text_and_ambiguous_snapshot() {
-        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"expectedText":"Hello","text":"Updated"}"#;
+        let request = text_update_request("Hello", "Updated");
         for error in [
             super::TextUpdateError::NotTextObject,
             super::TextUpdateError::Validation(super::MoveValidationError::TargetAmbiguous),
@@ -2644,7 +2955,7 @@ mod tests {
             let response = post(
                 server.local_addr(),
                 "/v1/scenes/current/objects/text/update",
-                request,
+                &request,
             );
             assert!(response.starts_with("HTTP/1.1 409 Conflict\r\n"));
             let error: ApiError = serde_json::from_str(body(&response)).unwrap();
@@ -2656,11 +2967,11 @@ mod tests {
     #[test]
     fn update_text_endpoint_maps_sdk_read_failure_to_unavailable() {
         let server = start_with_text_updater(|_| Err(super::TextUpdateError::Unavailable));
-        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"expectedText":"Hello","text":"Updated"}"#;
+        let request = text_update_request("Hello", "Updated");
         let response = post(
             server.local_addr(),
             "/v1/scenes/current/objects/text/update",
-            request,
+            &request,
         );
         assert!(response.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
         let error: ApiError = serde_json::from_str(body(&response)).unwrap();
@@ -2673,6 +2984,7 @@ mod tests {
         let server = start_with_media_creator(|request| {
             Ok(aviutl2_ai_agent_protocol::CreateMediaObjectResponse {
                 object: aviutl2_ai_agent_protocol::TimelineObject {
+                    id: "obj-media".to_owned(),
                     layer: request.layer,
                     start_frame: request.start_frame,
                     end_frame: request.start_frame + request.length - 1,
@@ -2710,7 +3022,7 @@ mod tests {
             || Ok(scene("Root", 0)),
             |_| Err(super::MutationError::SceneConflict),
         );
-        let body_text = r#"{"expectedSceneName":"Other","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let body_text = r#"{"expectedSceneName":"Other","objectId":"obj-1","destination":{"layer":2,"startFrame":100}}"#;
         let mut stream = TcpStream::connect(server.local_addr()).unwrap();
         let request_head = format!(
             "POST /v1/scenes/current/objects/move HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nExpect: 100-continue\r\n\r\n",

@@ -66,7 +66,56 @@ pub struct CurrentObjectDetails {
 pub struct ObjectDetails {
     pub object: TimelineObject,
     pub kind: ObjectKind,
-    pub text: Option<String>,
+    pub state: ObjectState,
+    pub text: Option<TextProperties>,
+    pub media: Option<MediaProperties>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectState {
+    pub layer_enabled: bool,
+    pub layer_locked: bool,
+    pub effects: Vec<EffectState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectState {
+    pub name: String,
+    pub enabled: bool,
+    pub locked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextProperties {
+    pub content: String,
+    pub font: String,
+    pub size: String,
+    pub position: PositionProperties,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PositionProperties {
+    pub x: String,
+    pub y: String,
+    pub z: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaProperties {
+    pub file_path: String,
+    pub playback_position: Option<String>,
+    pub playback_speed: Option<String>,
+    pub playback_range: Option<String>,
+    pub display_number: Option<String>,
+    pub track: Option<String>,
+    pub loop_playback: Option<String>,
+    pub sequential_files: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +131,7 @@ pub enum ObjectKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimelineObject {
+    pub id: String,
     pub layer: u64,
     pub start_frame: u64,
     pub end_frame: u64,
@@ -92,7 +142,7 @@ pub struct TimelineObject {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MoveObjectRequest {
     pub expected_scene_name: String,
-    pub target: TimelineObject,
+    pub object_id: String,
     pub destination: MoveObjectDestination,
 }
 
@@ -113,7 +163,7 @@ pub struct MoveObjectResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DeleteObjectRequest {
     pub expected_scene_name: String,
-    pub target: TimelineObject,
+    pub object_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,23 +193,32 @@ pub struct CreateTextObjectResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateTextObjectRequest {
     pub expected_scene_name: String,
-    pub target: TimelineObject,
-    pub expected_text: String,
-    pub text: String,
+    pub object_id: String,
+    pub patch: TextPropertiesPatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TextPropertiesPatch {
+    pub content: Option<String>,
+    pub font: Option<String>,
+    pub size: Option<String>,
+    pub position: Option<PositionProperties>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTextObjectResponse {
     pub object: TimelineObject,
-    pub text: String,
+    pub text: TextProperties,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DuplicateObjectRequest {
     pub expected_scene_name: String,
-    pub target: TimelineObject,
+    pub object_id: String,
     pub destination: MoveObjectDestination,
 }
 
@@ -268,6 +327,7 @@ mod tests {
 
         let objects = CurrentObjects {
             objects: vec![TimelineObject {
+                id: "obj-1".into(),
                 layer: 0,
                 start_frame: 10,
                 end_frame: 39,
@@ -276,19 +336,35 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&objects).unwrap(),
-            r#"{"objects":[{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#
+            r#"{"objects":[{"id":"obj-1","layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#
         );
 
         let details = CurrentObjectDetails {
             objects: vec![ObjectDetails {
                 object: objects.objects[0].clone(),
                 kind: ObjectKind::Text,
-                text: Some("Hello".into()),
+                state: ObjectState {
+                    layer_enabled: true,
+                    layer_locked: false,
+                    effects: vec![],
+                },
+                text: Some(TextProperties {
+                    content: "Hello".into(),
+                    font: "Yu Gothic UI".into(),
+                    size: "40.00".into(),
+                    position: PositionProperties {
+                        x: "0.00".into(),
+                        y: "0.00".into(),
+                        z: "0.00".into(),
+                    },
+                    color: "ffffff".into(),
+                }),
+                media: None,
             }],
         };
         assert_eq!(
             serde_json::to_string(&details).unwrap(),
-            r#"{"objects":[{"object":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"kind":"text","text":"Hello"}]}"#
+            r#"{"objects":[{"object":{"id":"obj-1","layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"kind":"text","state":{"layerEnabled":true,"layerLocked":false,"effects":[]},"text":{"content":"Hello","font":"Yu Gothic UI","size":"40.00","position":{"x":"0.00","y":"0.00","z":"0.00"},"color":"ffffff"},"media":null}]}"#
         );
     }
 
@@ -307,25 +383,25 @@ mod tests {
 
     #[test]
     fn move_request_uses_strict_camel_case_contract() {
-        let json = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100}}"#;
+        let json = r#"{"expectedSceneName":"Root","objectId":"obj-1","destination":{"layer":2,"startFrame":100}}"#;
         let request = serde_json::from_str::<MoveObjectRequest>(json).unwrap();
         assert_eq!(request.expected_scene_name, "Root");
         assert_eq!(request.destination.layer, 2);
         assert_eq!(serde_json::to_string(&request).unwrap(), json);
 
-        let with_unknown = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"destination":{"layer":2,"startFrame":100},"extra":true}"#;
+        let with_unknown = r#"{"expectedSceneName":"Root","objectId":"obj-1","destination":{"layer":2,"startFrame":100},"extra":true}"#;
         assert!(serde_json::from_str::<MoveObjectRequest>(with_unknown).is_err());
     }
 
     #[test]
     fn delete_request_uses_strict_camel_case_contract() {
-        let json = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":null}}"#;
+        let json = r#"{"expectedSceneName":"Root","objectId":"obj-1"}"#;
         let request = serde_json::from_str::<DeleteObjectRequest>(json).unwrap();
-        assert_eq!(request.target.start_frame, 10);
+        assert_eq!(request.object_id, "obj-1");
         assert_eq!(serde_json::to_string(&request).unwrap(), json);
         assert!(
             serde_json::from_str::<DeleteObjectRequest>(
-                r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":null},"extra":true}"#
+                r#"{"expectedSceneName":"Root","objectId":"obj-1","extra":true}"#
             )
             .is_err()
         );
@@ -343,14 +419,13 @@ mod tests {
 
     #[test]
     fn update_text_request_uses_strict_camel_case_contract() {
-        let json = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":null},"expectedText":"Hello","text":"Updated"}"#;
+        let json = r#"{"expectedSceneName":"Root","objectId":"obj-1","patch":{"content":"Updated","font":null,"size":null,"position":null,"color":null}}"#;
         let request = serde_json::from_str::<UpdateTextObjectRequest>(json).unwrap();
-        assert_eq!(request.expected_text, "Hello");
-        assert_eq!(request.text, "Updated");
+        assert_eq!(request.patch.content.as_deref(), Some("Updated"));
         assert_eq!(serde_json::to_string(&request).unwrap(), json);
         assert!(
             serde_json::from_str::<UpdateTextObjectRequest>(
-                r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":null},"expectedText":"Hello","text":"Updated","extra":true}"#
+                r#"{"expectedSceneName":"Root","objectId":"obj-1","patch":{"content":"Updated","font":null,"size":null,"position":null,"color":null},"extra":true}"#
             )
             .is_err()
         );

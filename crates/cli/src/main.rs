@@ -1,12 +1,13 @@
-use std::process::ExitCode;
+use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::Context;
 use aviutl2_ai_agent_protocol::{
     ApiError, CreateMediaObjectRequest, CreateMediaObjectResponse, CreateTextObjectRequest,
     CreateTextObjectResponse, CurrentObjectDetails, CurrentObjects, CurrentScene, CurrentTimeline,
     DeleteObjectRequest, DeleteObjectResponse, DuplicateObjectRequest, DuplicateObjectResponse,
-    ErrorCode, Health, MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status,
-    TimelineObject, UpdateTextObjectRequest, UpdateTextObjectResponse,
+    ErrorCode, Health, MoveObjectDestination, MoveObjectRequest, MoveObjectResponse,
+    PositionProperties, Status, TextPropertiesPatch, UpdateTextObjectRequest,
+    UpdateTextObjectResponse,
 };
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
@@ -22,6 +23,7 @@ struct Args {
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// Check whether the plugin HTTP listener is alive.
     Health,
@@ -35,18 +37,17 @@ enum Command {
     CurrentObjects,
     /// List object kinds and text content for the current scene.
     CurrentObjectDetails,
+    /// Save the current frame as a PNG image.
+    CurrentFrame {
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Move one object identified by its complete current snapshot.
     MoveObject {
         #[arg(long)]
         expected_scene_name: String,
         #[arg(long)]
-        layer: u64,
-        #[arg(long)]
-        start_frame: u64,
-        #[arg(long)]
-        end_frame: u64,
-        #[arg(long)]
-        name: Option<String>,
+        object_id: String,
         #[arg(long)]
         destination_layer: u64,
         #[arg(long)]
@@ -57,13 +58,7 @@ enum Command {
         #[arg(long)]
         expected_scene_name: String,
         #[arg(long)]
-        layer: u64,
-        #[arg(long)]
-        start_frame: u64,
-        #[arg(long)]
-        end_frame: u64,
-        #[arg(long)]
-        name: Option<String>,
+        object_id: String,
     },
     /// Create one text object with a single alias-based SDK mutation.
     CreateText {
@@ -83,30 +78,28 @@ enum Command {
         #[arg(long)]
         expected_scene_name: String,
         #[arg(long)]
-        layer: u64,
+        object_id: String,
         #[arg(long)]
-        start_frame: u64,
+        text: Option<String>,
         #[arg(long)]
-        end_frame: u64,
+        font: Option<String>,
         #[arg(long)]
-        name: Option<String>,
+        size: Option<String>,
         #[arg(long)]
-        expected_text: String,
+        x: Option<String>,
         #[arg(long)]
-        text: String,
+        y: Option<String>,
+        #[arg(long)]
+        z: Option<String>,
+        #[arg(long)]
+        color: Option<String>,
     },
     /// Duplicate one object at a non-overlapping destination.
     DuplicateObject {
         #[arg(long)]
         expected_scene_name: String,
         #[arg(long)]
-        layer: u64,
-        #[arg(long)]
-        start_frame: u64,
-        #[arg(long)]
-        end_frame: u64,
-        #[arg(long)]
-        name: Option<String>,
+        object_id: String,
         #[arg(long)]
         destination_layer: u64,
         #[arg(long)]
@@ -167,12 +160,16 @@ fn run(args: Args) -> Result<(), ClientError> {
                 "current object details",
             )?)
         }
+        Command::CurrentFrame { output } => {
+            let bytes = get_bytes(&args.endpoint, "/v1/scenes/current/frame", "current frame")?;
+            std::fs::write(&output, bytes)
+                .with_context(|| format!("failed to write {}", output.display()))
+                .map_err(ClientError::Other)?;
+            Ok(serde_json::json!({"output": output}).to_string())
+        }
         Command::MoveObject {
             expected_scene_name,
-            layer,
-            start_frame,
-            end_frame,
-            name,
+            object_id,
             destination_layer,
             destination_start_frame,
         } => serde_json::to_string_pretty(&post::<MoveObjectResponse>(
@@ -180,12 +177,7 @@ fn run(args: Args) -> Result<(), ClientError> {
             "/v1/scenes/current/objects/move",
             &MoveObjectRequest {
                 expected_scene_name,
-                target: TimelineObject {
-                    layer,
-                    start_frame,
-                    end_frame,
-                    name,
-                },
+                object_id,
                 destination: MoveObjectDestination {
                     layer: destination_layer,
                     start_frame: destination_start_frame,
@@ -195,21 +187,13 @@ fn run(args: Args) -> Result<(), ClientError> {
         )?),
         Command::DeleteObject {
             expected_scene_name,
-            layer,
-            start_frame,
-            end_frame,
-            name,
+            object_id,
         } => serde_json::to_string_pretty(&post::<DeleteObjectResponse>(
             &args.endpoint,
             "/v1/scenes/current/objects/delete",
             &DeleteObjectRequest {
                 expected_scene_name,
-                target: TimelineObject {
-                    layer,
-                    start_frame,
-                    end_frame,
-                    name,
-                },
+                object_id,
             },
             "delete object",
         )?),
@@ -233,34 +217,41 @@ fn run(args: Args) -> Result<(), ClientError> {
         )?),
         Command::UpdateText {
             expected_scene_name,
-            layer,
-            start_frame,
-            end_frame,
-            name,
-            expected_text,
+            object_id,
             text,
+            font,
+            size,
+            x,
+            y,
+            z,
+            color,
         } => serde_json::to_string_pretty(&post::<UpdateTextObjectResponse>(
             &args.endpoint,
             "/v1/scenes/current/objects/text/update",
             &UpdateTextObjectRequest {
                 expected_scene_name,
-                target: TimelineObject {
-                    layer,
-                    start_frame,
-                    end_frame,
-                    name,
+                object_id,
+                patch: TextPropertiesPatch {
+                    content: text,
+                    font,
+                    size,
+                    color,
+                    position: match (x, y, z) {
+                        (Some(x), Some(y), Some(z)) => Some(PositionProperties { x, y, z }),
+                        (None, None, None) => None,
+                        _ => {
+                            return Err(ClientError::Other(anyhow::anyhow!(
+                                "--x, --y, and --z must be specified together"
+                            )));
+                        }
+                    },
                 },
-                expected_text,
-                text,
             },
             "update text object",
         )?),
         Command::DuplicateObject {
             expected_scene_name,
-            layer,
-            start_frame,
-            end_frame,
-            name,
+            object_id,
             destination_layer,
             destination_start_frame,
         } => serde_json::to_string_pretty(&post::<DuplicateObjectResponse>(
@@ -268,12 +259,7 @@ fn run(args: Args) -> Result<(), ClientError> {
             "/v1/scenes/current/objects/duplicate",
             &DuplicateObjectRequest {
                 expected_scene_name,
-                target: TimelineObject {
-                    layer,
-                    start_frame,
-                    end_frame,
-                    name,
-                },
+                object_id,
                 destination: MoveObjectDestination {
                     layer: destination_layer,
                     start_frame: destination_start_frame,
@@ -383,6 +369,33 @@ fn get<T: DeserializeOwned>(
     decode_response(&endpoint, response_name, &mut response)
 }
 
+fn get_bytes(base_endpoint: &str, path: &str, response_name: &str) -> Result<Vec<u8>, ClientError> {
+    let endpoint = format!("{}{path}", base_endpoint.trim_end_matches('/'));
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let mut response = agent
+        .get(&endpoint)
+        .call()
+        .with_context(|| format!("failed to connect to {endpoint}"))
+        .map_err(ClientError::Other)?;
+    let status = response.status().as_u16();
+    if !response.status().is_success() {
+        let error = response
+            .body_mut()
+            .read_json::<ApiError>()
+            .with_context(|| format!("invalid API error response from {endpoint}"))
+            .map_err(ClientError::Other)?;
+        return Err(ClientError::Api { status, error });
+    }
+    response
+        .body_mut()
+        .read_to_vec()
+        .with_context(|| format!("invalid {response_name} response"))
+        .map_err(ClientError::Other)
+}
+
 fn decode_response<T: DeserializeOwned>(
     endpoint: &str,
     response_name: &str,
@@ -414,7 +427,7 @@ mod tests {
 
     use aviutl2_ai_agent_protocol::{
         CurrentObjects, CurrentScene, CurrentTimeline, ErrorCode, HealthStatus,
-        MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status, TimelineObject,
+        MoveObjectDestination, MoveObjectRequest, MoveObjectResponse, Status,
     };
 
     use super::{ClientError, get, post};
@@ -484,7 +497,7 @@ mod tests {
 
         let endpoint = serve_once(
             "200 OK",
-            r#"{"objects":[{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#,
+            r#"{"objects":[{"id":"obj-1","layer":0,"startFrame":10,"endFrame":39,"name":"Title"}]}"#,
         );
         let objects: CurrentObjects =
             get(&endpoint, "/v1/scenes/current/objects", "current objects").unwrap();
@@ -496,19 +509,14 @@ mod tests {
     fn posts_move_request_and_parses_result() {
         let endpoint = serve_once(
             "200 OK",
-            r#"{"object":{"layer":2,"startFrame":100,"endFrame":129,"name":"Title"}}"#,
+            r#"{"object":{"id":"obj-2","layer":2,"startFrame":100,"endFrame":129,"name":"Title"}}"#,
         );
         let moved: MoveObjectResponse = post(
             &endpoint,
             "/v1/scenes/current/objects/move",
             &MoveObjectRequest {
                 expected_scene_name: "Root".to_owned(),
-                target: TimelineObject {
-                    layer: 0,
-                    start_frame: 10,
-                    end_frame: 39,
-                    name: Some("Title".to_owned()),
-                },
+                object_id: "obj-1".to_owned(),
                 destination: MoveObjectDestination {
                     layer: 2,
                     start_frame: 100,

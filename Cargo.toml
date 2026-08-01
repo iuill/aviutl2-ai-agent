@@ -20,6 +20,8 @@ thiserror = "2.0.12"
 rmcp = { version = "=3.0.1", default-features = false, features = ["macros", "server", "transport-io"] }
 tokio = { version = "1.47.1", features = ["io-std", "macros", "rt"] }
 ureq = { version = "3.0.12", default-features = false, features = ["json"] }
+png = "0.17.16"
+base64 = "0.22.1"
 
 [profile.release]
 lto = "thin"

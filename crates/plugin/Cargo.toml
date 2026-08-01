@@ -14,6 +14,7 @@ aviutl2-ai-agent-protocol = { path = "../protocol" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+png.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 aviutl2.workspace = true

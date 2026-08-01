@@ -23,6 +23,8 @@ mod windows_plugin {
     const EVENT_OBSERVATION_LOG_ENV: &str = "AVIUTL2_AI_AGENT_EVENT_OBSERVATION_LOG";
 
     pub(super) static EDIT_HANDLE: GlobalEditHandle = GlobalEditHandle::new();
+    pub(super) static PROJECT_GENERATION: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(1);
 
     #[aviutl2::plugin(GenericPlugin)]
     struct AgentPlugin {
@@ -68,6 +70,7 @@ mod windows_plugin {
         }
 
         fn on_project_load(&mut self, _project: &mut aviutl2::generic::ProjectFile) {
+            PROJECT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             write_observation_event("project_load");
         }
 
@@ -97,6 +100,9 @@ mod windows_plugin {
                     join_panics: 0,
                 },
             );
+            if EDIT_HANDLE.is_ready() {
+                EDIT_HANDLE.wait_rendering_task();
+            }
             write_lifecycle_event(
                 "http_workers_joined",
                 Some((observation.worker_count, observation.join_panics)),
