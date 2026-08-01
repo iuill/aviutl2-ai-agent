@@ -14,6 +14,7 @@ MCPのread/write tool、型別object details、text properties update、current 
 - 設計とアーキテクチャ上の制約: `docs/design.md`
 - SDK の検証項目、観測結果、Phase 移行条件: `docs/history/phase0.md`
 - ビルドと検証方法: `docs/development.md`
+- version、tag、GitHub Release: `docs/releases.md`
 - 対応バージョン: `docs/compatibility.md`
 - Windows 実機確認記録: `docs/verification/windows.md`
 
@@ -51,6 +52,15 @@ MCPのread/write tool、型別object details、text properties update、current 
 - 固定している Rust toolchain、`aviutl2` crate、`cargo-xwin` などを更新する場合は、
   `docs/development.md` に記載された互換性チェックを行い、結果を記録する。
 - `dist/` の成果物は手編集せず、正規ビルドで生成する。
+
+## リリース
+
+- 公式release作業では、最初に`docs/releases.md`を読み、その手順を正とする。
+- plugin、CLI、MCP Serverはworkspace versionを共有する1セットとしてreleaseする。
+- release PRでworkspace version、Cargo.lock、CHANGELOG、互換性文書を同時に更新する。
+- `vMAJOR.MINOR.PATCH` tagはrelease PRをmainへmergeし、全必須checkが成功した後に付ける。
+- push済みtagを別commitへ付け替えない。公開後の修正は次のpatch versionで行う。
+- GitHub Release作成後は、tag、version、zipの外部checksum、zip内binaryのchecksumを確認する。
 
 ## 検証
 

@@ -33,7 +33,22 @@ CLIとMCP ServerはAviUtl2のprocess外で動作し、loopback HTTP APIを経由
 
 ## ビルド
 
-正規ビルドはLinuxまたはWSL2上のDockerで行います。
+一般利用では[GitHub Releases](https://github.com/iuill/aviutl2-ai-agent/releases)から
+最新のWindows x64 zipと`.sha256`をdownloadし、checksumを確認して使用します。
+version、tag、成果物の公開手順は [`docs/releases.md`](docs/releases.md)を参照してください。
+利用者向けの変更一覧は [`CHANGELOG.md`](CHANGELOG.md)に記録します。
+
+PowerShellでは、同じdirectoryへdownloadしたzipと`.sha256`を次のように照合できます。
+
+```powershell
+$checksumFile = Get-Item .\aviutl2-ai-agent-v*-windows-x64.zip.sha256
+$archive = $checksumFile.FullName -replace '\.sha256$', ''
+$expected = (Get-Content $checksumFile -Raw).Split()[0].ToLowerInvariant()
+$actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "SHA-256 mismatch: $archive" }
+```
+
+sourceから生成する場合の正規ビルドはLinuxまたはWSL2上のDockerで行います。
 
 ```bash
 docker build --output type=local,dest=dist .
@@ -172,6 +187,8 @@ cargo test --locked --workspace
 
 Dev Container、依存更新、正規ビルド、診断ログについては
 [`docs/development.md`](docs/development.md)を参照してください。
+releaseのversion更新、tag、GitHub Releaseについては
+[`docs/releases.md`](docs/releases.md)を参照してください。
 
 ## ローカル環境の情報
 

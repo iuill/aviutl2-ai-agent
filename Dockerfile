@@ -23,6 +23,9 @@ RUN mkdir -p crates/cli/src crates/plugin/src crates/protocol/src crates/mcp/src
 
 FROM dependencies AS build
 
+ARG AVIUTL2_AI_AGENT_BUILD_COMMIT=""
+ENV AVIUTL2_AI_AGENT_BUILD_COMMIT=${AVIUTL2_AI_AGENT_BUILD_COMMIT}
+
 RUN rm -rf crates/cli/src crates/plugin/src crates/protocol/src crates/mcp/src
 COPY crates ./crates
 RUN find crates -type f -name '*.rs' -exec touch {} +

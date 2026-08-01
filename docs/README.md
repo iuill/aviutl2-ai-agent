@@ -10,6 +10,7 @@
 |---|---|
 | [`design.md`](design.md) | 公開APIの契約、安全境界、実装上の制約 |
 | [`development.md`](development.md) | Dev Container、ビルド、テスト、診断ログ |
+| [`releases.md`](releases.md) | version、tag、GitHub Releaseの公開手順 |
 | [`compatibility.md`](compatibility.md) | 対応versionと、実機確認記録への入口 |
 | [`roadmap.md`](roadmap.md) | 完了した実装範囲と、必要性を確認してから検討する候補 |
 
@@ -40,6 +41,7 @@
 - 一般利用者が最初に必要とするセットアップと使用例: `README.md`
 - 公開契約と長期的に維持する制約: `design.md`
 - 再現可能な開発・検証手順: `development.md`
+- version、tag、配布成果物の公開手順: `releases.md`
 - 対応versionの要約: `compatibility.md`
 - 特定環境での実測結果: `verification/`
 - 個人環境固有のVM、path、資格情報の参照方法: `AGENTS.local.md`
