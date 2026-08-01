@@ -192,7 +192,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "現在のsceneにあるobjectの種別とtext objectの本文を読み取ります。",
+        description = "現在のsceneにあるobjectのID、種別、layer/effect状態、textとmediaの設定を読み取ります。",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -277,7 +277,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "plain text objectを1つ作成します。自動再試行しないでください。",
+        description = "plain text objectを1つ作成します。複数行の本文には文字列 \\n を使い、実際の改行文字は使わないでください。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -302,7 +302,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "list_current_object_detailsが返した現在のobject IDを使い、text objectの本文、font、size、XYZ位置、色を更新します。自動再試行しないでください。",
+        description = "list_current_object_detailsが返した現在のobject IDを使い、text objectの本文、font、size、XYZ位置、色を更新します。複数行の本文には文字列 \\n を使い、実際の改行文字は使わないでください。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -635,6 +635,23 @@ mod tests {
                     })
                 })
         );
+        for name in ["create_text_object", "update_text_object"] {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            assert!(tool.description.as_deref().unwrap().contains(r"文字列 \n"));
+            assert!(
+                tool.description
+                    .as_deref()
+                    .unwrap()
+                    .contains("実際の改行文字は使わない")
+            );
+        }
+        let details = tools
+            .iter()
+            .find(|tool| tool.name == "list_current_object_details")
+            .unwrap();
+        for term in ["ID", "種別", "状態", "text", "media"] {
+            assert!(details.description.as_deref().unwrap().contains(term));
+        }
     }
 
     #[test]

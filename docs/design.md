@@ -364,7 +364,8 @@ responseは、実利用で必要になるまで追加しません。
 文字装飾、任意effectの更新、project保存、複数object更新は含めません。複数行は
 AviUtl2のescape表現である文字列 `\n` を本文に含めます。HTTP JSONではbackslashを
 escapeした `\\n` として送信し、read-backでも文字列 `\n` を保持します。実際の改行文字を
-SDKへ渡す契約にはしません。
+SDKへ渡す契約にはしません。文字列 `\n` を改行ではなくbackslashと`n`として表示する方法や、
+その他のbackslash sequenceの解釈は未検証です。
 
 ## Phase 3単一duplicateの設計
 
