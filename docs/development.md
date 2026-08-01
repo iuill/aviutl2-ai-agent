@@ -92,8 +92,9 @@ Dockerfileの`dependencies` stageには固定toolchain、
 crateの追加、削除、移動や `build.rs` の追加時は、Dockerfileの `dependencies`
 stageにあるmanifest、仮source、build scriptのCOPYと生成処理も更新してください。
 
-Windows native smokeはCargo registryと依存crateのbuild成果物をcacheします。どちらの
-cacheも性能最適化にのみ使用し、成果物の正しさや再現性の根拠にはしません。
+Windows native smokeもmainへのpush時にCargo registryと依存crateのbuild成果物を保存し、
+PRではcacheを読み取るだけにします。どちらのcacheも性能最適化にのみ使用し、成果物の
+正しさや再現性の根拠にはしません。
 
 ## 実装境界
 

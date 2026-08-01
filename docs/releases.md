@@ -49,7 +49,8 @@ git push origin v0.1.0
 ```
 
 `Release` workflowはtag、workspace version、main上のcommitであることを検証してから、
-配布用Docker buildを実行します。成功すると次をGitHub Releaseへ配置します。
+CI cacheを読み込まずに配布用Docker buildを実行します。成功すると次をGitHub Releaseへ
+配置します。
 
 - `aviutl2-ai-agent-vX.Y.Z-windows-x64.zip`
 - `aviutl2-ai-agent-vX.Y.Z-windows-x64.zip.sha256`
