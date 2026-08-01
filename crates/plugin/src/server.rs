@@ -1127,24 +1127,30 @@ fn create_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
 
 fn update_text_object(body: &[u8], context: &ServerContext) -> HttpResponse {
     let request = match serde_json::from_slice::<UpdateTextObjectRequest>(body) {
-        Ok(request)
-            if !request
-                .text
-                .chars()
-                .any(|character| matches!(character, '\r' | '\n' | '\0')) =>
-        {
-            request
-        }
-        _ => {
+        Ok(request) => request,
+        Err(_) => {
             return api_error(
                 "400 Bad Request",
                 ErrorCode::InvalidRequest,
-                "Invalid text update request",
+                "Invalid text update JSON",
                 false,
                 None,
             );
         }
     };
+    if request
+        .text
+        .chars()
+        .any(|character| matches!(character, '\r' | '\n' | '\0'))
+    {
+        return api_error(
+            "400 Bad Request",
+            ErrorCode::InvalidRequest,
+            "text must not contain CR, LF, or NUL",
+            false,
+            None,
+        );
+    }
     match context
         .editor_gate
         .read(|| Ok((context.text_object_updater)(&request)))
@@ -1491,16 +1497,14 @@ fn platform_object_details_reader() -> Arc<ObjectDetailsReader> {
                         let (kind, text) = match primary_effect.as_deref() {
                             Some(TEXT_EFFECT_NAME) => (
                                 ObjectKind::Text,
-                                Some(
-                                    section
-                                        .get_object_effect_item(
-                                            handle,
-                                            TEXT_EFFECT_NAME,
-                                            0,
-                                            TEXT_ITEM_NAME,
-                                        )
-                                        .map_err(|_| EditorError::Unavailable)?,
-                                ),
+                                section
+                                    .get_object_effect_item(
+                                        handle,
+                                        TEXT_EFFECT_NAME,
+                                        0,
+                                        TEXT_ITEM_NAME,
+                                    )
+                                    .ok(),
                             ),
                             Some(IMAGE_EFFECT_NAME) => (ObjectKind::Image, None),
                             Some(AUDIO_EFFECT_NAME) => (ObjectKind::Audio, None),
@@ -1731,7 +1735,7 @@ fn platform_text_object_updater() -> Arc<TextObjectUpdater> {
                 let primary_effect = section
                     .get_first_effect(handle)
                     .and_then(|effect| section.get_effect_name(effect))
-                    .map_err(|_| TextUpdateError::NotTextObject)?;
+                    .map_err(|_| TextUpdateError::Unavailable)?;
                 if primary_effect != TEXT_EFFECT_NAME {
                     return Err(TextUpdateError::NotTextObject);
                 }
@@ -1753,13 +1757,21 @@ fn platform_text_object_updater() -> Arc<TextObjectUpdater> {
                 let text = section
                     .get_object_effect_item(handle, TEXT_EFFECT_NAME, 0, TEXT_ITEM_NAME)
                     .map_err(|_| TextUpdateError::VerifyFailed)?;
-                if text != request.text {
+                let position = section
+                    .get_object_layer_frame(handle)
+                    .map_err(|_| TextUpdateError::VerifyFailed)?;
+                let object = TimelineObject {
+                    layer: sdk_u64(position.layer),
+                    start_frame: sdk_u64(position.start),
+                    end_frame: sdk_u64(position.end),
+                    name: section
+                        .get_object_name(handle)
+                        .map_err(|_| TextUpdateError::VerifyFailed)?,
+                };
+                if text != request.text || object != request.target {
                     return Err(TextUpdateError::VerifyFailed);
                 }
-                Ok(UpdateTextObjectResponse {
-                    object: request.target.clone(),
-                    text,
-                })
+                Ok(UpdateTextObjectResponse { object, text })
             })
             .map_err(|_| TextUpdateError::Unavailable)?
     })
@@ -2165,11 +2177,23 @@ mod tests {
 
     fn object_details() -> aviutl2_ai_agent_protocol::CurrentObjectDetails {
         aviutl2_ai_agent_protocol::CurrentObjectDetails {
-            objects: vec![aviutl2_ai_agent_protocol::ObjectDetails {
-                object: objects().objects[0].clone(),
-                kind: aviutl2_ai_agent_protocol::ObjectKind::Text,
-                text: Some("Hello".to_owned()),
-            }],
+            objects: vec![
+                aviutl2_ai_agent_protocol::ObjectDetails {
+                    object: objects().objects[0].clone(),
+                    kind: aviutl2_ai_agent_protocol::ObjectKind::Text,
+                    text: Some("Hello".to_owned()),
+                },
+                aviutl2_ai_agent_protocol::ObjectDetails {
+                    object: aviutl2_ai_agent_protocol::TimelineObject {
+                        layer: 1,
+                        start_frame: 10,
+                        end_frame: 39,
+                        name: None,
+                    },
+                    kind: aviutl2_ai_agent_protocol::ObjectKind::Text,
+                    text: None,
+                },
+            ],
         }
     }
 
@@ -2605,6 +2629,8 @@ mod tests {
             invalid,
         );
         assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+        let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+        assert!(error.message.contains("CR, LF, or NUL"));
     }
 
     #[test]
@@ -2625,6 +2651,21 @@ mod tests {
             assert_eq!(error.code, ErrorCode::StateConflict);
             assert!(!error.retryable);
         }
+    }
+
+    #[test]
+    fn update_text_endpoint_maps_sdk_read_failure_to_unavailable() {
+        let server = start_with_text_updater(|_| Err(super::TextUpdateError::Unavailable));
+        let request = r#"{"expectedSceneName":"Root","target":{"layer":0,"startFrame":10,"endFrame":39,"name":"Title"},"expectedText":"Hello","text":"Updated"}"#;
+        let response = post(
+            server.local_addr(),
+            "/v1/scenes/current/objects/text/update",
+            request,
+        );
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
+        let error: ApiError = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(error.code, ErrorCode::EditorUnavailable);
+        assert!(error.retryable);
     }
 
     #[test]

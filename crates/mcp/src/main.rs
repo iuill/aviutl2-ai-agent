@@ -269,7 +269,7 @@ impl Aviutl2Mcp {
     }
 
     #[tool(
-        description = "完全一致するtext objectの現在本文を確認してから本文を更新します。自動再試行しないでください。",
+        description = "list_current_object_detailsが返した完全snapshotと現在本文をそのまま使い、text objectの本文を更新します。自動再試行しないでください。",
         annotations(
             read_only_hint = false,
             destructive_hint = true,

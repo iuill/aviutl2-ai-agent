@@ -75,6 +75,9 @@ MCP clientに委ねます。
 Windowsで先頭effect名を実測した `text`、`image`、`audio` と、未分類の `unknown`です。
 raw effect名、alias、素材pathは返しません。従来のobject一覧はmutation requestへ渡す
 小さいsnapshot契約として維持し、detailsを混在させません。
+text種別を識別できても本文項目の取得に失敗した1件は`kind: text, text: null`へ降格し、
+他objectのdetailsは返します。これは恒常的に読めない1件によって一覧全体をretryableな
+503にしないためです。先頭effect自体を取得できないobjectは`unknown`とします。
 
 ## 実装境界
 
@@ -323,6 +326,8 @@ CR、LF、NULを含むtextを拒否します。length 0、frame overflow、同�
 期待する現在本文、新しい本文を受け取ります。1回のedit section内でscene、snapshot、
 先頭effectがtextであること、現在本文を順に確認してから、検証済みのtext項目だけを
 1回更新します。更新後は同じ項目をread-backし、新しい本文との一致を確認します。
+更新後のlayer、frame範囲、nameもSDKから再取得し、target snapshotとの一致を確認して
+実測値をresponseへ返します。
 
 scene、snapshot、現在本文、object種別の不一致はmutation前のconflictです。SDK更新後の
 失敗またはread-back不一致は結果不確定とし、自動再試行せずdetailsの再取得を求めます。

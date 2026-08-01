@@ -299,6 +299,8 @@ Windows Server 2025、AviUtl2 2.1.2、正規Docker build成果物で、plain tex
 CLIから完全snapshotと`expectedText=BEFORE`を指定して`AFTER`へ更新し、detailsの再取得で
 本文を確認しました。続けて古い`expectedText=BEFORE`を再送するとmutation前に
 `state_conflict`の409となり、本文は`AFTER`のままでした。
+更新後snapshotをSDKから再取得する実装でも再検証し、responseのlayer 0、frame 100から
+129、name nullと本文`AFTER`がdetailsの再取得結果と一致しました。
 
 同じ成果物のMCP serverをCodex CLI 0.146.0へ登録し、`gpt-5.6-luna`、reasoning effort
 `high`で実行しました。Codexは`list_current_object_details`から本文`AFTER`のtext objectと
