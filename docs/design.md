@@ -124,7 +124,7 @@ errorを返した後のhost終了時にaccess violationを観測したため、h
 ```json
 {
   "status": "ok",
-  "pluginVersion": "0.0.1",
+  "pluginVersion": "0.1.0",
   "apiVersion": "v1",
   "listenerAddress": "127.0.0.1:7890",
   "processId": 1234
