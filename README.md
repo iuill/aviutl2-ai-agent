@@ -1,5 +1,10 @@
 # aviutl2-ai-agent
 
+[![CI](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/ci.yml)
+[![Windows build](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml/badge.svg)](https://github.com/iuill/aviutl2-ai-agent/actions/workflows/windows-smoke.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/iuill/aviutl2-ai-agent)](https://github.com/iuill/aviutl2-ai-agent/releases/latest)
+[![License](https://img.shields.io/github/license/iuill/aviutl2-ai-agent)](LICENSE)
+
 起動中のAviUtl2プロジェクトを、ローカルの構造化APIから読み書きするための
 非公式プロジェクトです。AviUtl2 Plugin SDKを使うプラグインと、CLI、MCP Serverを
 Rustで実装しています。AviUtl2公式のプロジェクトではありません。
