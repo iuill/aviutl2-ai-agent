@@ -45,6 +45,13 @@ rendering subsystem停止後には待機しません。修正後の観測結果�
 current frame要求の処理中にAviUtl2を終了する競合条件は未検証です。CLIとMCPには
 current frame専用の60秒timeoutを設けますが、plugin内部のrender taskはcancelしません。
 
+続けて、release PR #23のcommit `f2a6041`を正規Docker buildしたv0.1.1候補でも、
+Windows Server 2025とAviUtl2 2.1.2の対話sessionで同じruntime smokeを再実行しました。
+公式ZIPの固定SHA-256と転送した3 binaryの`SHA256SUMS`を検証し、healthの
+`pluginVersion=0.1.1`、status、current scene、timeline、object read、current frameの
+PNG signatureを確認しました。終了時は4 workerをpanicなしでjoinし、exit code 0、
+port 7890の再bind成功を確認しました。
+
 ## plugin metadata更新後のruntime smoke
 
 Windows Server 2025の対話sessionで、commit `c674244` の正規Docker build成果物と
