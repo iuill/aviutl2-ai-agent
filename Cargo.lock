@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "aviutl2-ai-agent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "aviutl2-ai-agent-protocol",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "aviutl2-ai-agent-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "aviutl2-ai-agent-protocol",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "aviutl2-ai-agent-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aviutl2",
  "aviutl2-ai-agent-protocol",
@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "aviutl2-ai-agent-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
