@@ -105,7 +105,8 @@ detailsを混在させません。text設定の取得に失敗した1件は`kind
   pointer幅へ依存させない。SDKの`usize`との変換はplugin境界で検証する
 - event callbackから `call_edit_section` を呼ばない
 - plugin破棄時はlistenerを閉じ、全workerをjoinしてから破棄を完了する
-- 描画callbackが保持するDLL内closureを残さないよう、worker join後にrender task完了を待つ
+- current frameのrender taskはrequest worker内で完了まで待ち、plugin破棄時はworker joinで
+  未完了の描画callbackを残さない
 - Windows未実測の挙動を保証済みと記述しない
 
 固定loopback port 7890と単一AviUtl2 instanceという制約を維持します。複数instanceや

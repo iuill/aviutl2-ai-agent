@@ -10,8 +10,8 @@
 
 ### Changed
 
-- Rust toolchainを1.97.1へ更新し、依存crateとクロスビルド環境を更新
-- READMEの導入導線を整理し、GitHub Actionsのビルドcacheを改善
+- source build toolchainをRust 1.97.1へ更新し、依存crateとクロスビルド環境を更新
+- READMEの導入手順を利用者向けに整理
 
 ### Fixed
 

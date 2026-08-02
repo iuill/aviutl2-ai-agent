@@ -47,10 +47,11 @@ current frame専用の60秒timeoutを設けますが、plugin内部のrender tas
 
 続けて、release PR #23のcommit `f2a6041`を正規Docker buildしたv0.1.1候補でも、
 Windows Server 2025とAviUtl2 2.1.2の対話sessionで同じruntime smokeを再実行しました。
-公式ZIPの固定SHA-256と転送した3 binaryの`SHA256SUMS`を検証し、healthの
+AviUtl2公式ZIPの固定SHA-256と転送した3 binaryの`SHA256SUMS`を検証し、healthの
 `pluginVersion=0.1.1`、status、current scene、timeline、object read、current frameの
 PNG signatureを確認しました。終了時は4 workerをpanicなしでjoinし、exit code 0、
-port 7890の再bind成功を確認しました。
+port 7890の再bind成功を確認しました。続けてport 7890を占有した状態でもAPIを安全に
+無効化し、worker 0本、exit code 0で終了しました。
 
 ## plugin metadata更新後のruntime smoke
 

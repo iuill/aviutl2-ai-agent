@@ -42,10 +42,11 @@ cargo check --workspace
 Release PRのmerge後、mainを同期してannotated tagをpushします。
 
 ```bash
+RELEASE_VERSION=0.1.1
 git switch main
 git pull --ff-only
-git tag -a v0.1.0 -m "v0.1.0"
-git push origin v0.1.0
+git tag -a "v${RELEASE_VERSION}" -m "v${RELEASE_VERSION}"
+git push origin "v${RELEASE_VERSION}"
 ```
 
 `Release` workflowはtag、workspace version、main上のcommitであることを検証してから、
@@ -68,9 +69,12 @@ workflowが一時的な理由で失敗した場合は同じrunを再実行しま
 ## 公開後の確認
 
 ```bash
-gh release view v0.1.0
-gh release download v0.1.0 --pattern 'aviutl2-ai-agent-v0.1.0-windows-x64*'
-sha256sum --check aviutl2-ai-agent-v0.1.0-windows-x64.zip.sha256
+RELEASE_VERSION=0.1.1
+gh release view "v${RELEASE_VERSION}"
+gh release download "v${RELEASE_VERSION}" \
+  --pattern "aviutl2-ai-agent-v${RELEASE_VERSION}-windows-x64*"
+sha256sum --check \
+  "aviutl2-ai-agent-v${RELEASE_VERSION}-windows-x64.zip.sha256"
 ```
 
 downloadしたzipを展開し、`SHA256SUMS`を使って3 binaryも確認します。release page、tag、
