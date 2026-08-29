@@ -2,16 +2,10 @@
 
 set -euo pipefail
 
-codex_cli=""
-for candidate in /usr/local/bin/codex /usr/bin/codex /bin/codex; do
-  if [[ -x "${candidate}" && ! "${candidate}" -ef "$0" ]]; then
-    codex_cli="${candidate}"
-    break
-  fi
-done
+codex_cli="${HOST_CODEX_BIN:?HOST_CODEX_BIN is not set}"
 
-if [[ -z "${codex_cli}" ]]; then
-  echo "Codex CLI is not installed" >&2
+if [[ ! -x "${codex_cli}" ]]; then
+  echo "Host Codex CLI is not executable: ${codex_cli}" >&2
   exit 127
 fi
 
