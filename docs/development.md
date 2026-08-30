@@ -4,8 +4,8 @@
 
 対応ホストはLinuxおよびWSL2です。WindowsネイティブとmacOSは対象外です。
 
-Dev ContainerにはRust 1.97.1、`cargo-xwin` 0.23.0、Codex CLI、GitHub CLIが
-含まれます。VS CodeのDev Containers拡張機能から、このリポジトリをコンテナで
+Dev ContainerにはRust 1.97.1、`cargo-xwin` 0.23.0、GitHub CLIが含まれ、
+Codex CLIはホストのstandalone版を共有します。VS CodeのDev Containers拡張機能から、このリポジトリをコンテナで
 開いてください。コンテナ内のターミナルで次を実行するとCodexを起動できます。
 
 ```bash
@@ -48,6 +48,10 @@ Codex認証はホストの `~/.codex/auth.json` を共有します。GitHub CLI�
 `~/.config/gh` を共有するため、ホストでログイン済みならコンテナ内で再ログインする
 必要はありません。コンテナ内でのログイン、ログアウト、アカウント切り替えは
 ホストにも反映されます。
+
+Codex CLIはホストの `~/.codex/packages/standalone` をread-onlyで共有します。
+Dev Containerの起動前に `current/bin/codex` が実行可能か検証し、利用できなければ
+起動を中止します。ホストのCodexを更新すると、コンテナでも同じ版が選択されます。
 
 Windows実機検証で使う接続設定は、必要に応じてホストからDev Containerへread-onlyで
 共有します。credentialsの作成・配置と接続先は公開文書へ固定せず、各環境の
